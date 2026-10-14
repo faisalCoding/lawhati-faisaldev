@@ -10,8 +10,8 @@
 
 لا يُنشئ أحدٌ حسابك نيابةً عنك ولا يُرسل إليك رمزًا:
 
-1. سجّل في <https://faisaldev.site/lawhati/signup>
-2. من <https://faisaldev.site/lawhati/code> أنشئ رمزًا لجهازك — **يُعرض مرّة واحدة**
+1. سجّل في <https://faisaldev.site/apps/lawhati/signup>
+2. من <https://faisaldev.site/apps/lawhati/code> أنشئ رمزًا لجهازك — **يُعرض مرّة واحدة**
 3. في التطبيق: الإعدادات ← الدخول، والصق الرمز
 
 الموقع يحفظ بصمة الرمز لا الرمز نفسه، فلا يستطيع عرضه ثانيةً. ضياعه لا يكلّف شيئًا: أنشئ غيره، وأوقف القديم من الصفحة نفسها إن ضاع معه جهاز.
@@ -39,7 +39,7 @@ npx expo start      # التطبيق
 | التطبيق في المتصفح | `https://faisaldev.site/lawhati-app/` |
 | خادم المزامنة | `wss://faisaldev.site/lawhati-sync/` |
 | هوية المستخدم | `https://faisaldev.site/api/lawhati/me` |
-| إنشاء حساب | `https://faisaldev.site/lawhati/signup` |
+| إنشاء حساب | `https://faisaldev.site/apps/lawhati/signup` |
 
 ## نسختان على خادم واحد
 

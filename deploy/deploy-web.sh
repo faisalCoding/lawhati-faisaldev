@@ -60,8 +60,9 @@ check() {
 }
 check "$APP_URL/lawhati-app/" "page"
 check "$APP_URL/lawhati-app/board/example" "deep link"
-# The site's own account pages must still answer: the whole point of moving off /lawhati.
-for path in /lawhati/login /lawhati/signup; do
+# The site's own account pages must still answer. They live under /apps/lawhati because another
+# instance left a server-wide redirect owning /lawhati/ on this machine.
+for path in /apps/lawhati/login /apps/lawhati/signup; do
   code="$(curl -sS -o /dev/null -w '%{http_code}' "$APP_URL$path")"
   if [ "$code" = "200" ]; then echo "  $path: ok"; else echo "  $path: got $code — the app may be shadowing it" >&2; exit 1; fi
 done

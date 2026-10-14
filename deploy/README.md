@@ -112,7 +112,14 @@ SSH_TARGET=root@72.61.207.108 npm run deploy:web
 
 ### لماذا `/lawhati-app` لا `/lawhati`
 
-المسار `/lawhati/` ليس شاغرًا: الموقع نفسه يخدم عليه صفحات الحساب — `/lawhati/login` و`/lawhati/signup` و`/lawhati/code`. ولو وُضع التطبيق هناك بـ`FallbackResource`، لأجاب أباتشي عن الثلاث بـ`index.html` فتختفي الصفحات **وهي تعيد 200**، وهذا أسوأ من خطأ ظاهر.
+المسار `/lawhati/` مخطوف على هذا الخادم. نسخة أخرى من التطبيق تركت فيه توجيه أباتشي عامًّا بلا قيد مضيف يشير إلى مضيفها، فكل عنوان تحت `/lawhati/` على هذا الموقع يجيب بـ301 إلى نطاق آخر — قِسناه:
+
+```
+curl -sSI https://faisaldev.site/lawhati/login
+→ 301  Location: https://panel.kayanalnhda.sa/lawhati/login
+```
+
+وذلك الملف يخصّ موقعًا إنتاجيًّا، فلا يُعدَّل من هنا. لذلك ذهب التطبيق إلى `/lawhati-app/`، وذهبت صفحات الحساب إلى `/apps/lawhati/*`، وكلاهما مسار حرّ تحققنا منه.
 
 ولا توجد لهذه النسخة عناوين قديمة تُحوَّل منها: هي نسخة جديدة، وُلدت على هذا الخادم.
 
@@ -123,7 +130,7 @@ SSH_TARGET=root@72.61.207.108 npm run deploy:web
 
 ```bash
 curl -sI https://faisaldev.site/lawhati-app/
-curl -sI https://faisaldev.site/lawhati/login
+curl -sI https://faisaldev.site/apps/lawhati/login
 ```
 
 - الإلغاء:

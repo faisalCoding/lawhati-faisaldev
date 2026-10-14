@@ -34,7 +34,7 @@ export default function SignInScreen() {
     } catch (e) {
       setError(
         e instanceof MemberError && e.reason === 'invalid'
-          ? 'هذا الرمز غير صحيح أو أُوقف. أنشئ رمزًا جديدًا من faisaldev.site/lawhati/code.'
+          ? 'هذا الرمز غير صحيح أو أُوقف. أنشئ رمزًا جديدًا من faisaldev.site/apps/lawhati/code.'
           : 'تعذّر الوصول إلى لوحة الإدارة. تأكد من الاتصال بالإنترنت ثم حاول مرة أخرى.',
       );
     } finally {
@@ -83,7 +83,7 @@ export default function SignInScreen() {
           </View>
           {expired ? <Txt style={styles.notice}>توقف رمزك السابق. أنشئ غيره وأدخله.</Txt> : null}
           <Txt style={styles.lead}>
-            الصق الرمز الذي أخذته من faisaldev.site/lawhati/code، أو الرابط كاملًا. بعده تستطيع إسناد البطاقات لزملائك، وتصلك
+            الصق الرمز الذي أخذته من faisaldev.site/apps/lawhati/code، أو الرابط كاملًا. بعده تستطيع إسناد البطاقات لزملائك، وتصلك
             المسندة إليك.
           </Txt>
           <Input
