@@ -30,3 +30,6 @@ yarn-error.*
 # Release signing — never commit
 /keystore.properties
 *.keystore
+
+# مخرجات بناء الوحدة الأصلية — مولَّدة
+modules/*/android/build/
