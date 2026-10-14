@@ -109,7 +109,8 @@
           "icon": "./assets/notification-icon.png",
           "color": "#0C66E4"
         }
-      ]
+      ],
+      "./plugins/withReleaseSigning"
     ],
     "extra": {
       "router": {},

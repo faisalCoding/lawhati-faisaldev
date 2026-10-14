@@ -26,3 +26,7 @@ npm-debug.*
 yarn-error.*
 .idea/
 .vscode/
+
+# Release signing — never commit
+/keystore.properties
+*.keystore
