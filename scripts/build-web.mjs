@@ -1,10 +1,13 @@
-// Builds the web version into dist-web/ for https://faisaldev.site/lawhati/
+// Builds the web version into dist-web/ for https://faisaldev.site/lawhati-app/
+//
+// Not /lawhati/: the site serves its own account pages there (/lawhati/login, /signup, /code).
+// Publishing the app at that path would shadow them.
 // (deploy/deploy-web.sh publishes it). The address is set here, once, and filled into the page,
 // its manifest and the page that hands over what browsers saved at the previous address.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 
-const BASE_URL = process.env.WEB_BASE_URL ?? '/lawhati';
+const BASE_URL = process.env.WEB_BASE_URL ?? '/lawhati-app';
 const WEB_ORIGIN = process.env.WEB_ORIGIN ?? 'https://faisaldev.site';
 // Where the web version used to be; its boards are brought over on the first visit (public/migrate.html).
 const PREVIOUS_ORIGIN = process.env.WEB_PREVIOUS_ORIGIN ?? 'https://faisaldev.site';

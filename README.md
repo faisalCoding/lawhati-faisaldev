@@ -36,7 +36,7 @@ npx expo start      # التطبيق
 
 | ما هو | أين |
 | --- | --- |
-| التطبيق في المتصفح | `https://faisaldev.site/lawhati/` |
+| التطبيق في المتصفح | `https://faisaldev.site/lawhati-app/` |
 | خادم المزامنة | `wss://faisaldev.site/lawhati-sync/` |
 | هوية المستخدم | `https://faisaldev.site/api/lawhati/me` |
 | إنشاء حساب | `https://faisaldev.site/lawhati/signup` |
