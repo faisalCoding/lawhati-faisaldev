@@ -1,0 +1,155 @@
+import { Linking, StyleSheet, View } from 'react-native';
+
+import { Button, Chip } from '../components/ui/Buttons';
+import { EditableText } from '../components/ui/EditableText';
+import { ToggleRow } from '../components/ui/ToggleRow';
+import { Txt } from '../components/ui/Txt';
+import { colors } from '../lib/theme';
+import type { ReminderTiming } from './plan';
+import { useMe } from '../members/session';
+import { setNotificationPrefs, setTeamName, useNotificationPrefs, useTeamName } from './prefs';
+import { useExactAlarms, useNotificationPermission } from './scheduler';
+import { usePushState } from './team';
+
+const TIMINGS: { value: ReminderTiming; label: string }[] = [
+  { value: 'dueDay', label: 'يوم الموعد' },
+  { value: 'dayBefore', label: 'قبل الموعد بيوم' },
+  { value: 'off', label: 'إيقاف' },
+];
+
+const HOURS = [7, 8, 9, 10, 12, 18];
+
+function formatHour(hour: number): string {
+  if (hour < 12) return `${hour} صباحًا`;
+  if (hour === 12) return '12 ظهرًا';
+  return `${hour - 12} مساءً`;
+}
+
+/** The notification choices in the app's settings. They belong to this phone, not to a board. */
+export function NotificationSettings() {
+  const prefs = useNotificationPrefs();
+  const { permission, request } = useNotificationPermission();
+  const { exact, openSettings } = useExactAlarms();
+  const name = useTeamName();
+  // Signed in as an employee, teammates see the name from the company panel instead.
+  const me = useMe();
+  const pushState = usePushState();
+  const active = prefs.reminders !== 'off' || prefs.digest || prefs.team;
+
+  if (permission === 'unsupported') {
+    return <Txt style={styles.muted}>الإشعارات متاحة في تطبيق الهاتف.</Txt>;
+  }
+
+  return (
+    <View style={styles.card}>
+      {active && permission === 'undetermined' ? (
+        <View style={styles.notice}>
+          <Txt style={styles.noticeText}>اسمح للتطبيق بإرسال الإشعارات لتصلك التذكيرات.</Txt>
+          <Button title="السماح بالإشعارات" icon="bell" onPress={request} />
+        </View>
+      ) : null}
+      {active && permission === 'denied' ? (
+        <View style={styles.notice}>
+          <Txt style={styles.noticeText}>الإشعارات متوقفة لهذا التطبيق من إعدادات الهاتف، فلن تصلك التذكيرات.</Txt>
+          <Button title="فتح إعدادات الهاتف" variant="secondary" onPress={() => Linking.openSettings()} />
+        </View>
+      ) : null}
+      {active && permission === 'granted' && exact === false ? (
+        <View style={styles.notice}>
+          <Txt style={styles.noticeText}>
+            قد يتأخر التذكير حتى ساعة، لأن أندرويد يؤخر التنبيهات لتوفير البطارية. ليصلك في وقته بالضبط، اسمح للتطبيق
+            بـ«المنبهات والتذكيرات».
+          </Txt>
+          <Button title="السماح بالمنبهات والتذكيرات" icon="clock" variant="secondary" onPress={openSettings} />
+        </View>
+      ) : null}
+
+      <Txt style={styles.label}>تذكير بكل بطاقة لها موعد</Txt>
+      <View style={styles.wrapRow}>
+        {TIMINGS.map((t) => (
+          <Chip
+            key={t.value}
+            label={t.label}
+            selected={prefs.reminders === t.value}
+            onPress={() => setNotificationPrefs({ reminders: t.value })}
+          />
+        ))}
+      </View>
+
+      <ToggleRow
+        icon="calendar"
+        title="خطة اليوم"
+        description="إشعار واحد كل يوم بالبطاقات المستحقة والمتأخرة، بدل إشعار لكل بطاقة في يوم موعدها."
+        value={prefs.digest}
+        onChange={(digest) => setNotificationPrefs({ digest })}
+      />
+
+      <Txt style={styles.label}>وقت الإشعار</Txt>
+      <View style={styles.wrapRow}>
+        {HOURS.map((hour) => (
+          <Chip
+            key={hour}
+            label={formatHour(hour)}
+            selected={prefs.hour === hour}
+            onPress={() => setNotificationPrefs({ hour })}
+          />
+        ))}
+      </View>
+
+      <Txt style={styles.muted}>
+        تصل للبطاقات التي لها موعد، في اللوحات المفعّلة فيها إضافة «المواعيد». البطاقة المعلَّمة «مكتمل»، أو المنقولة
+        إلى آخر قائمة مثل «مكتمل»، لا يصلك تذكير بها. وفي الإشعار زر «تم» يعلّم البطاقة مكتملة، و«أجّل ساعة» يعيد
+        التذكير بعد ساعة.
+      </Txt>
+
+      <View style={styles.divider} />
+
+      <ToggleRow
+        icon="users"
+        title="نشاط الفريق"
+        description="إشعار حين يعدّل أحد من فريقك بطاقة تتابعها في لوحة مشتركة. لا يصلك عن تعديلاتك، ولا واللوحة مفتوحة أمامك، والتعديلات المتتالية تصل في إشعار واحد."
+        value={prefs.team}
+        onChange={(team) => setNotificationPrefs({ team })}
+      />
+      {prefs.team && pushState === 'unavailable' ? (
+        <View style={styles.notice}>
+          <Txt style={styles.noticeText}>
+            لا تصل إشعارات الفريق إلى هذا الجهاز وهو مغلق. افتح «لوحتي» من المتصفّح وثبّتها على الشاشة الرئيسية لتصلك، أو اتركها مفتوحة فتظهر التنبيهات داخلها.
+          </Txt>
+        </View>
+      ) : null}
+
+      <Txt style={styles.label}>اسمك في الفريق</Txt>
+      {me ? (
+        <Txt style={styles.muted}>{`يظهر في إشعارات زملائك باسمك في لوحة الإدارة: ${me.name}.`}</Txt>
+      ) : (
+        <>
+          <EditableText
+            value={name}
+            onCommit={setTeamName}
+            placeholder="مثال: فيصل"
+            maxLength={40}
+            returnKeyType="done"
+          />
+          <Txt style={styles.muted}>يظهر في إشعارات زملائك، مثل: نُقلت إلى «مكتمل» — فيصل.</Txt>
+        </>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    padding: 14,
+    gap: 12,
+    boxShadow: '0px 1px 2px rgba(9,30,66,0.12)',
+  },
+  notice: { backgroundColor: '#E9F2FF', borderRadius: 10, padding: 12, gap: 10 },
+  noticeText: { fontSize: 14 },
+  label: { fontSize: 14, fontWeight: '600', color: colors.textSubtle },
+  wrapRow: { flexDirection: 'row-reverse', flexWrap: 'wrap', gap: 8 },
+  muted: { fontSize: 13, color: colors.textSubtle },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: 4 },
+});

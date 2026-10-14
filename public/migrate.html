@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="robots" content="noindex" />
+    <title>لوحتي</title>
+  </head>
+  <body>
+    <script>
+      // The app moved to %WEB_ORIGIN%%BASE_URL%/. Browsers keep saved data per address, so the boards
+      // this browser saved at the old address stay there. The app at its new address loads this page
+      // in a hidden frame, and this page hands it a copy of them. Nothing here is changed or deleted.
+      (function () {
+        var app = '%WEB_ORIGIN%';
+        if (window.parent === window) {
+          location.replace(app + '%BASE_URL%/');
+          return;
+        }
+        var saved = {};
+        try {
+          for (var i = 0; i < localStorage.length; i++) {
+            var key = localStorage.key(i);
+            if (key && key.indexOf('kanban-app/') === 0) saved[key] = localStorage.getItem(key);
+          }
+        } catch (e) {
+          // Storage blocked: there is nothing to hand over.
+        }
+        // Only the app's own address may receive the copy.
+        window.parent.postMessage({ type: 'lawhati-previous-address', saved: saved }, app);
+      })();
+    </script>
+  </body>
+</html>

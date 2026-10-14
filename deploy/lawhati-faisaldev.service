@@ -1,0 +1,30 @@
+[Unit]
+Description=Lawhati Kanban sync server (WebSocket)
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/node /opt/lawhati-faisaldev/lawhati-faisaldev.cjs
+Environment=HOST=127.0.0.1
+Environment=PORT=8788
+Environment=TRUST_PROXY=1
+Environment=DATA_FILE=/var/lib/lawhati-faisaldev/data.json
+# The company panel, which tells whose phone an employee's sign-in code is (for "assigned to you").
+Environment=LAWHATI_API=https://faisaldev.site/api/lawhati
+# The Web Push service account key for team notifications, if it has been put in
+# The VAPID key pair this server signs its notifications with, at
+# /etc/credstore/lawhati-faisaldev-vapid.json (readable by root only).
+# Generate it with: npm run vapid. Missing is fine: no notifications.
+ImportCredential=lawhati-faisaldev-vapid.json
+Restart=always
+RestartSec=3
+
+# Runs as a throwaway system user that can only write its own data folder.
+DynamicUser=yes
+StateDirectory=lawhati-faisaldev
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,90 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sync-server",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "server"
+      ],
+      "port": 8787
+    },
+    {
+      "name": "expo-web",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "EXPO_PUBLIC_SYNC_URL=ws://localhost:8787",
+        "npm",
+        "run",
+        "web",
+        "--",
+        "--port",
+        "8081"
+      ],
+      "port": 8081
+    },
+    {
+      "name": "web-static-test",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "PORT=8093",
+        "node",
+        "/private/tmp/claude-501/-Users-aaa-----------/0b6a99f8-435f-4f73-b887-6ed0a99799a3/scratchpad/serve-web-port.mjs"
+      ],
+      "port": 8093
+    },
+    {
+      "name": "alnhda-isolated",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DB_CONNECTION=sqlite",
+        "DB_DATABASE=/private/tmp/claude-501/-Users-aaa-----------/0b6a99f8-435f-4f73-b887-6ed0a99799a3/scratchpad/alnhda-test.sqlite",
+        "APP_URL=http://localhost",
+        "SESSION_DRIVER=file",
+        "CACHE_STORE=file",
+        "QUEUE_CONNECTION=sync",
+        "php",
+        "/Users/aaa/Projects/alnhda/artisan",
+        "serve",
+        "--host=127.0.0.1",
+        "--port=8110"
+      ],
+      "port": 8110
+    },
+    {
+      "name": "sync-server-test",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "PORT=8787",
+        "HOST=127.0.0.1",
+        "DATA_FILE=/private/tmp/claude-501/-Users-aaa-----------/0b6a99f8-435f-4f73-b887-6ed0a99799a3/scratchpad/sync-test-data/data.json",
+        "LAWHATI_API=http://127.0.0.1:8110/api/lawhati",
+        "npx",
+        "--prefix",
+        "/Users/aaa/kanban-app",
+        "tsx",
+        "/Users/aaa/kanban-app/server/index.ts"
+      ],
+      "port": 8787
+    },
+    {
+      "name": "expo-web-local",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "EXPO_PUBLIC_SYNC_URL=ws://localhost:8787",
+        "EXPO_PUBLIC_PANEL_URL=http://127.0.0.1:8110",
+        "npm",
+        "--prefix",
+        "/Users/aaa/kanban-app",
+        "run",
+        "web",
+        "--",
+        "--port",
+        "8082",
+        "--clear"
+      ],
+      "port": 8082
+    }
+  ]
+}

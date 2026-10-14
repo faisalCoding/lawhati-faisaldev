@@ -1,0 +1,121 @@
+{
+  "expo": {
+    "name": "Lawhati",
+    "slug": "kanban-app",
+    "scheme": "lawhati",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "CFBundleDisplayName": "لوحتي",
+        "ExpoLocalization_supportsRTL": false
+      },
+      "bundleIdentifier": "site.faisaldev.lawhati"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0C66E4",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "site.faisaldev.lawhati",
+      "permissions": [
+        "android.permission.SCHEDULE_EXACT_ALARM"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single",
+      "name": "لوحتي",
+      "shortName": "لوحتي",
+      "lang": "ar",
+      "description": "نظّم أي شيء بالقوائم والبطاقات، ومع فريقك في الوقت نفسه.",
+      "themeColor": "#0C66E4",
+      "backgroundColor": "#F7F8F9"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      [
+        "expo-localization",
+        {
+          "supportsRTL": false
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "backgroundColor": "#0C66E4",
+          "imageWidth": 180
+        }
+      ],
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "CardWidget",
+              "label": "بطاقة من لوحتي",
+              "description": "اعرض مهام بطاقة من لوحاتك، وأضف مهام جديدة، وعلّم المنجز منها",
+              "minWidth": "250dp",
+              "minHeight": "180dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 3,
+              "maxResizeWidth": "560dp",
+              "maxResizeHeight": "640dp",
+              "resizeMode": "horizontal|vertical",
+              "widgetFeatures": "reconfigurable",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-preview.png"
+            },
+            {
+              "name": "BoardListWidget",
+              "label": "قائمة من لوحتي",
+              "description": "اعرض كل بطاقات قائمة، واضغط أي بطاقة لعرض مهامها",
+              "minWidth": "250dp",
+              "minHeight": "220dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 4,
+              "maxResizeWidth": "560dp",
+              "maxResizeHeight": "720dp",
+              "resizeMode": "horizontal|vertical",
+              "widgetFeatures": "reconfigurable",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/list-widget-preview.png"
+            }
+          ]
+        }
+      ],
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/IBMPlexSansArabic-Regular.ttf",
+            "./assets/fonts/IBMPlexSansArabic-Medium.ttf",
+            "./assets/fonts/IBMPlexSansArabic-SemiBold.ttf",
+            "./assets/fonts/IBMPlexSansArabic-Bold.ttf"
+          ]
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#0C66E4"
+        }
+      ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "3e4d6829-39b9-4347-a58a-c2d0304d2ace"
+      }
+    }
+  }
+}
