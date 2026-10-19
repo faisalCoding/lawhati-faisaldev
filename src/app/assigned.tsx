@@ -45,8 +45,8 @@ export default function AssignedScreen() {
       <ModalHeader title="المسندة إليّ" onClose={goBack} />
       {!me || !found ? (
         <View style={styles.center}>
-          <Txt style={styles.lead}>ادخل برمز الموظف لترى البطاقات والمهام المسندة إليك.</Txt>
-          <Button title="الدخول برمز الموظف" icon="user" onPress={() => router.push('/sign-in')} />
+          <Txt style={styles.lead}>ادخل بحسابك لترى البطاقات والمهام المسندة إليك.</Txt>
+          <Button title="الدخول بحسابك" icon="user" onPress={() => router.push('/sign-in')} />
         </View>
       ) : (
         <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}>

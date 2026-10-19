@@ -149,8 +149,9 @@ class SyncClient {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const base = teamHello();
     if (!base) return;
-    // The employee's code lets the server tell whose phone this is, for "assigned to you" notifications.
-    const hello = { ...base, member: getMemberSession().code };
+    // The signed-in account's token lets the server tell whose phone this is, for "assigned to
+    // you" notifications. Not to be confused with a board's share code, which `watch` carries.
+    const hello = { ...base, member: getMemberSession().token };
     const watches: ClientMessage[] = Object.values(store.get().boards).flatMap((e) =>
       e.sync ? [{ t: 'watch' as const, code: e.sync.code, cardIds: watchedCardIds(e.board.id) }] : [],
     );

@@ -190,9 +190,9 @@ function AccountSettings() {
         <Txt style={styles.muted}>
           {expired
             ? 'توقف رمز دخولك. اطلب رمزًا جديدًا من مدير لوحة الإدارة.'
-            : 'ادخل برمز الموظف الذي يرسله لك مدير لوحة الإدارة، لتُسند البطاقات والمهام لزملائك وتصلك المسندة إليك.'}
+            : 'ادخل بحسابك على faisaldev.site، لتُسند البطاقات والمهام وتصلك المسندة إليك.'}
         </Txt>
-        <Button title="الدخول برمز الموظف" icon="user" onPress={() => router.push('/sign-in')} />
+        <Button title="الدخول بحسابك" icon="user" onPress={() => router.push('/sign-in')} />
       </View>
     );
   }

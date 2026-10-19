@@ -11,11 +11,11 @@ import { getMemberSession, loadMemberSession, refreshTeam, subscribeMemberSessio
 export function startMemberUpdates(): () => void {
   let told: string | null | undefined;
   const tellServer = async () => {
-    const { code } = getMemberSession();
-    if (code === told) return;
-    told = code;
+    const { token } = getMemberSession();
+    if (token === told) return;
+    told = token;
     // The web version never registers for push, so it may not have a device id yet.
-    if (code) await ensureDeviceId();
+    if (token) await ensureDeviceId();
     syncClient.syncTeam();
   };
 

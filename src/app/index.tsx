@@ -196,7 +196,7 @@ function BoardTile({
 function AccountButton() {
   const me = useMe();
   if (!me) {
-    return <IconButton name="user" label="الدخول برمز الموظف" size={24} onPress={() => router.push('/sign-in')} />;
+    return <IconButton name="user" label="الدخول بحسابك" size={24} onPress={() => router.push('/sign-in')} />;
   }
   return (
     <Pressable

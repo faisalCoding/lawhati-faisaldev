@@ -170,7 +170,7 @@ function AssignStep({ board, onSave }: { board: Board; onSave: (step: ButtonStep
           onPress={() => onSave({ type: 'assign', to: person })}
         />
       ))}
-      {!me ? <Txt style={styles.note}>ادخل برمز الموظف لتختار من كل الفريق.</Txt> : null}
+      {!me ? <Txt style={styles.note}>ادخل بحسابك لتُسند الخطوات.</Txt> : null}
     </ScrollView>
   );
 }

@@ -1,6 +1,6 @@
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { router } from 'expo-router';
+import { useState } from 'react';
+import { Platform, StyleSheet, View } from 'react-native';
 
 import { Avatar } from '../components/ui/Avatar';
 import { Button, Icon } from '../components/ui/Buttons';
@@ -9,47 +9,47 @@ import { ModalHeader } from '../components/ui/Layout';
 import { Input, Txt } from '../components/ui/Txt';
 import { goBack } from '../lib/nav';
 import { colors } from '../lib/theme';
-import { MemberError, readCode, type Member } from '../members/api';
+import { MemberError, type Member } from '../members/api';
 import { asAssignee, signIn, useMemberSession } from '../members/session';
 
+const SITE = 'faisaldev.site/apps/lawhati';
+
+/** Names this device on the site, so its token can be told from another device's. */
+const deviceName = () => (Platform.OS === 'web' ? 'المتصفح' : Platform.OS === 'ios' ? 'آيفون' : 'أندرويد');
+
 /**
- * Signs this device in as whoever made an account on faisaldev.site, with the code that site
- * gives them. Opened from the link on that page, the code is already filled in.
+ * Signs this device in with the account its owner already has on faisaldev.site — the same email
+ * and password they sign in to the site with. There is no separate code: the site mints a token
+ * behind this form, and nobody has to know it exists.
  */
 export default function SignInScreen() {
-  const params = useLocalSearchParams<{ code?: string }>();
   const { expired } = useMemberSession();
-  const [text, setText] = useState(() => readCode(params.code ?? ''));
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [welcome, setWelcome] = useState<Member | null>(null);
-  const code = readCode(text);
+  const ready = email.trim().length > 0 && password.length > 0;
 
   const submit = async () => {
-    if (!code || busy) return;
+    if (!ready || busy) return;
     setBusy(true);
     setError(null);
     try {
-      setWelcome(await signIn(code));
+      setWelcome(await signIn(email, password, deviceName()));
     } catch (e) {
+      const reason = e instanceof MemberError ? e.reason : 'offline';
       setError(
-        e instanceof MemberError && e.reason === 'invalid'
-          ? 'هذا الرمز غير صحيح أو أُوقف. أنشئ رمزًا جديدًا من faisaldev.site/apps/lawhati/code.'
-          : 'تعذّر الوصول إلى لوحة الإدارة. تأكد من الاتصال بالإنترنت ثم حاول مرة أخرى.',
+        reason === 'credentials'
+          ? 'البريد أو كلمة السرّ غير صحيحة.'
+          : reason === 'throttled'
+            ? 'محاولات كثيرة متتابعة. انتظر دقيقة ثم أعد المحاولة.'
+            : `تعذّر الوصول إلى ${SITE}. تأكد من اتصالك بالإنترنت ثم حاول مرة أخرى.`,
       );
     } finally {
       setBusy(false);
     }
   };
-
-  // A code that came in the link is tried right away.
-  const tried = useRef(false);
-  useEffect(() => {
-    if (tried.current || !params.code) return;
-    tried.current = true;
-    submit();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   if (welcome) {
     return (
@@ -75,34 +75,49 @@ export default function SignInScreen() {
 
   return (
     <View style={styles.screen}>
-      <ModalHeader title="الدخول برمزك" onClose={goBack} />
+      <ModalHeader title="الدخول بحسابك" onClose={goBack} />
       <AvoidKeyboard style={styles.flex}>
         <View style={styles.content}>
           <View style={styles.icon}>
             <Icon name="user" size={34} color={colors.primary} />
           </View>
-          {expired ? <Txt style={styles.notice}>توقف رمزك السابق. أنشئ غيره وأدخله.</Txt> : null}
+          {expired ? <Txt style={styles.notice}>انتهت جلستك. ادخل مرة أخرى.</Txt> : null}
           <Txt style={styles.lead}>
-            الصق الرمز الذي أخذته من faisaldev.site/apps/lawhati/code، أو الرابط كاملًا. بعده تستطيع إسناد البطاقات لزملائك، وتصلك
-            المسندة إليك.
+            ادخل بنفس البريد وكلمة السرّ اللذين تدخل بهما {SITE}. ليس لك حساب؟ أنشئه من هناك.
           </Txt>
           <Input
-            autoFocus={!params.code}
-            value={text}
+            autoFocus
+            value={email}
             onChangeText={(t) => {
-              setText(t);
+              setEmail(t);
               setError(null);
             }}
-            placeholder="12|AbCd…"
+            placeholder="البريد الإلكتروني"
+            keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
-            autoComplete="off"
+            autoComplete="email"
+            textContentType="emailAddress"
+            style={styles.field}
+          />
+          <Input
+            value={password}
+            onChangeText={(t) => {
+              setPassword(t);
+              setError(null);
+            }}
+            placeholder="كلمة السرّ"
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="current-password"
+            textContentType="password"
             onSubmitEditing={submit}
             returnKeyType="go"
-            style={styles.code}
+            style={styles.field}
           />
           {error ? <Txt style={styles.error}>{error}</Txt> : null}
-          <Button title="دخول" icon="join" onPress={submit} disabled={!code} loading={busy} />
+          <Button title="دخول" icon="join" onPress={submit} disabled={!ready} loading={busy} />
         </View>
       </AvoidKeyboard>
     </View>
@@ -134,6 +149,6 @@ const styles = StyleSheet.create({
     padding: 10,
     textAlign: 'center',
   },
-  code: { fontSize: 16, textAlign: 'left', writingDirection: 'ltr' },
+  field: { fontSize: 16, textAlign: 'left', writingDirection: 'ltr' },
   error: { fontSize: 14, color: colors.danger, textAlign: 'center' },
 });

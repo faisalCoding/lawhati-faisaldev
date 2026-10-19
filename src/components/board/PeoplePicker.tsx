@@ -35,8 +35,8 @@ export function PeoplePicker({
   if (!me) {
     return (
       <View style={styles.signedOut}>
-        <Txt style={styles.note}>ادخل برمز الموظف أولًا، لتختار من فريقك في لوحة الإدارة.</Txt>
-        <Button title="الدخول برمز الموظف" icon="user" onPress={onSignIn} />
+        <Txt style={styles.note}>ادخل بحسابك أولًا، لتُسند البطاقات.</Txt>
+        <Button title="الدخول بحسابك" icon="user" onPress={onSignIn} />
       </View>
     );
   }

@@ -76,7 +76,7 @@ export function runButton(boardId: string, ids: string[], button: CardButton, me
       }
       case 'assign': {
         if (step.to === 'me' && !me) {
-          skipped.push('«أسندها إليّ»: ادخل برمز الموظف أولًا');
+          skipped.push('«أسندها إليّ»: ادخل بحسابك أولًا');
           break;
         }
         const person: Assignee | null =
