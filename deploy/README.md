@@ -107,7 +107,7 @@ SSH_TARGET=root@72.61.207.108 npm run deploy:web
 السكربت يعمل بالترتيب التالي:
 1. يبني نسخة الويب في `dist-web/` (`npm run build:web`).
 2. يرفعها إلى `/var/www/lawhati-app` دفعة واحدة: يفكّها بجوار النسخة الحالية ثم يبدّلهما، فلا يرى الزوار موقعًا نصف منسوخ.
-3. يفعّل ملف `lawhati.conf` في Apache، وهو يربط المسار `/lawhati-app` بالمجلد وحده، ويعيد أي عنوان داخله (مثل رابط لوحة) إلى صفحة التطبيق. يُختبر الإعداد قبل التفعيل، ويُتراجع عنه تلقائيًا إذا رُفض.
+3. يفعّل ملف `lawhati-faisaldev.conf` في Apache، وهو يربط المسار `/lawhati-app` بالمجلد وحده، ويعيد أي عنوان داخله (مثل رابط لوحة) إلى صفحة التطبيق. يُختبر الإعداد قبل التفعيل، ويُتراجع عنه تلقائيًا إذا رُفض.
 4. يتحقق من أن الصفحة ورابطًا داخليًا يفتحان التطبيق، **ومن أن `/lawhati/login` و`/lawhati/signup` ما زالتا تعملان** — فهما صفحتا الموقع، وهذا ما يكشف أي ابتلاع لهما.
 
 ### لماذا `/lawhati-app` لا `/lawhati`
@@ -136,7 +136,7 @@ curl -sI https://faisaldev.site/apps/lawhati/login
 - الإلغاء:
 
 ```bash
-ssh root@72.61.207.108 'a2disconf lawhati && systemctl reload apache2 && rm -rf /var/www/lawhati-app'
+ssh root@72.61.207.108 'a2disconf lawhati-faisaldev && systemctl reload apache2 && rm -rf /var/www/lawhati-app'
 ```
 
 ## الصيانة

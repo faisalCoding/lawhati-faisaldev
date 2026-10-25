@@ -40,8 +40,11 @@ $SUDO mv /var/www/lawhati-app.new /var/www/lawhati-app
 $SUDO rm -rf /var/www/lawhati-app.old
 
 $SUDO a2enmod -q headers
-$SUDO install -m 644 /tmp/apache-lawhati.conf /etc/apache2/conf-available/lawhati.conf
-$SUDO a2enconf -q lawhati
+# Named for this instance, not «lawhati». The other instance on this server installs its own web
+# conf as conf-available/lawhati.conf and enables it as «lawhati»; sharing the name meant whichever
+# deployed last silently replaced the other's routing, and that is exactly what happened once.
+$SUDO install -m 644 /tmp/apache-lawhati.conf /etc/apache2/conf-available/lawhati-faisaldev.conf
+$SUDO a2enconf -q lawhati-faisaldev
 # Apache's own words, not just "it said no": the message names the line and the reason, and
 # without it a rejection here is a guess. configtest writes to stderr even when it passes.
 if check="$($SUDO apachectl configtest 2>&1)"; then
@@ -49,7 +52,7 @@ if check="$($SUDO apachectl configtest 2>&1)"; then
 else
   echo "Apache rejected the configuration; rolling back." >&2
   echo "$check" | sed 's/^/  /' >&2
-  $SUDO a2disconf -q lawhati
+  $SUDO a2disconf -q lawhati-faisaldev
   exit 1
 fi
 rm -f /tmp/lawhati-web.tgz /tmp/apache-lawhati.conf
