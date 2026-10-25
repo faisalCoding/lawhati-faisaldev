@@ -89,6 +89,10 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
       const label = after.labels.find((l) => l.id === op.labelId);
       return label ? { type: 'label/rename', name: label.name, color: label.color } : null;
     }
+    case 'member/seen': {
+      const was = (before.members ?? []).some((m) => m.id === op.member.id);
+      return { type: 'member/seen', name: op.member.name, renamed: was };
+    }
     case 'list/add':
       return { type: 'list/add', list: op.list.title };
     case 'list/update': {

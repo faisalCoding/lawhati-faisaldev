@@ -2,6 +2,7 @@ import { ScrollView, StyleSheet, View, Pressable } from 'react-native';
 
 import { colors } from '../../lib/theme';
 import type { Member } from '../../members/api';
+import type { BoardMember } from '../../shared/types';
 import { useMemberSession } from '../../members/session';
 import { Avatar } from '../ui/Avatar';
 import { Button, Icon } from '../ui/Buttons';
@@ -9,16 +10,23 @@ import { useSheetListHeight } from '../ui/Sheet';
 import { Txt } from '../ui/Txt';
 
 /**
- * The team, to assign a card (several people) or a task (one person) to. The list comes from the
- * company panel, so it needs this device signed in with an employee's code.
+ * Who a card (several people) or a task (one person) may be assigned to: the board's own roster,
+ * which every device adds itself to on opening the board.
+ *
+ * Not the site's team endpoint. That one answers with the asker alone, on purpose — anyone may sign
+ * up here, and handing every stranger the names of all the others is a price no feature is worth.
+ * The roster is the board's, travels with it, and works with no connection.
  */
 export function PeoplePicker({
+  members,
   selected,
   single,
   shared,
   onChange,
   onSignIn,
 }: {
+  /** The board's roster, oldest first. */
+  members: BoardMember[];
   /** Ids of the people assigned now. */
   selected: string[];
   /** A task has one person (or none); a card can have several. */
@@ -29,7 +37,7 @@ export function PeoplePicker({
   onChange: (member: Member | null, on: boolean) => void;
   onSignIn: () => void;
 }) {
-  const { me, team } = useMemberSession();
+  const { me } = useMemberSession();
   const listHeight = useSheetListHeight();
 
   if (!me) {
@@ -41,8 +49,15 @@ export function PeoplePicker({
     );
   }
 
-  // Me first, then the others. People who left stay listed only while something is assigned to them.
-  const people = [me, ...team.filter((m) => m.id !== me.id && (m.active || selected.includes(m.id)))];
+  // Me first, then the rest of the roster in the order the board met them. Someone already assigned
+  // stays listed even if the roster has not seen them — a board that arrived with assignments on it
+  // must still show who they are, and they must stay removable.
+  const toMember = (m: BoardMember): Member => ({ id: m.id, name: m.name, role: null, active: true });
+  const others = members.filter((m) => m.id !== me.id).map(toMember);
+  const missing = selected
+    .filter((id) => id !== me.id && !others.some((m) => m.id === id))
+    .map((id) => ({ id, name: 'عضو سابق', role: null, active: false }) satisfies Member);
+  const people = [me, ...others, ...missing];
 
   return (
     <ScrollView style={[styles.list, { maxHeight: listHeight }]} keyboardShouldPersistTaps="handled">
@@ -67,7 +82,9 @@ export function PeoplePicker({
       })}
       {people.length === 1 ? (
         <Txt style={styles.note}>
-          لا يظهر غيرك في الفريق بعد. يضيف مدير لوحة الإدارة الموظفين من «المهام الأسبوعية».
+          {shared
+            ? 'لا أحد غيرك على هذه اللوحة بعد. من ينضم إليها برمزها ويفتحها يظهر هنا.'
+            : 'شارك اللوحة أولًا، فيظهر هنا من ينضم إليها.'}
         </Txt>
       ) : null}
     </ScrollView>

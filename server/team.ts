@@ -184,6 +184,12 @@ export function stamp(ws: WebSocket, op: Op) {
     by = name ? { id: '', name } : null;
   }
   op.by = by;
+  // The roster says who was on a board, and attendance is recorded from it, so it is built from
+  // the identity the server verified — never from what the device put in the message. A device the
+  // server cannot name writes an empty id, which the reducer drops.
+  if (op.type === 'member/seen') {
+    op.member = { id: by?.id ?? '', name: by?.name ?? '', at: typeof op.at === 'number' ? op.at : Date.now() };
+  }
   if (op.group !== undefined && !(typeof op.group === 'string' && ID_PATTERN.test(op.group))) delete op.group;
   if (op.reverts !== undefined && !(typeof op.reverts === 'string' && ID_PATTERN.test(op.reverts))) delete op.reverts;
   if (op.button !== undefined) {

@@ -65,6 +65,21 @@ function reduce(board: Board, op: Op): Board {
         labels: board.labels.map((l) => (l.id === op.labelId ? { ...l, name: op.name } : l)),
       };
 
+    case 'member/seen': {
+      // A row with no id or no name is worse than no row: it cannot be assigned to and cannot be
+      // told from another. The server rewrites this op from the identity it verified, and an
+      // unidentified device leaves nothing behind.
+      if (!op.member?.id || !op.member.name) return board;
+      const members = board.members ?? [];
+      const seen = members.find((m) => m.id === op.member.id);
+      // Already there under the same name: nothing to say. Every device sends this on open, so
+      // the common case must be a no-op or the activity would fill with arrivals.
+      if (seen && seen.name === op.member.name) return board;
+      if (!seen) return { ...board, members: [...members, op.member] };
+      // People rename themselves; the roster follows, keeping when the board first saw them.
+      return { ...board, members: members.map((m) => (m.id === op.member.id ? { ...m, name: op.member.name } : m)) };
+    }
+
     case 'list/add':
       if (board.lists.some((l) => l.id === op.list.id)) return board;
       return { ...board, lists: [...board.lists, { ...op.list, cardIds: [] }] };

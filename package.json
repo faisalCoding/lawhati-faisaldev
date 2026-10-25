@@ -60,7 +60,8 @@
     "build:web": "node scripts/build-web.mjs",
     "deploy:web": "bash deploy/deploy-web.sh",
     "vapid": "node scripts/vapid.mjs",
-    "icons": "node scripts/brand-icons.mjs"
+    "icons": "node scripts/brand-icons.mjs",
+    "check:model": "tsx scripts/check-model.ts"
   },
   "private": true
 }

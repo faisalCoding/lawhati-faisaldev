@@ -64,6 +64,23 @@ export interface List {
   wipLimit: number | null;
 }
 
+/**
+ * Someone this board has seen: a person to assign work to, and later to record as having attended a
+ * meeting. Kept on the board rather than fetched, because the site deliberately will not say who
+ * else has an account — and because a board must be usable with no connection at all.
+ *
+ * The roster grows by itself: a device adds whoever it is signed in as the first time it opens the
+ * board. Nobody maintains it by hand, and it is the same on every device because it syncs like any
+ * other change.
+ */
+export interface BoardMember {
+  /** The account's id on the site, or `g:…` for a device nobody signed in on. */
+  id: string;
+  name: string;
+  /** When the board first saw them. */
+  at: number;
+}
+
 export interface Board {
   id: string;
   title: string;
@@ -81,6 +98,8 @@ export interface Board {
   buttons?: CardButton[];
   /** What was done to the board lately, oldest first (see `activity.ts`). Older boards lack it. */
   activity?: ActivityEntry[];
+  /** Everyone this board has seen, oldest first. Older boards lack it. */
+  members?: BoardMember[];
 }
 
 /**
@@ -142,7 +161,8 @@ export type ActivityWhat =
   | { type: 'board/look' }
   | { type: 'board/buttons' }
   | { type: 'powerUp'; key: PowerUpKey; on: boolean }
-  | { type: 'label/rename'; name: string; color: string };
+  | { type: 'label/rename'; name: string; color: string }
+  | { type: 'member/seen'; name: string; renamed: boolean };
 
 /**
  * One operation that undoes part of a change. `expect` holds the values the change left: undoing
@@ -182,6 +202,8 @@ export type OpInput =
   | { type: 'board/update'; patch: Partial<Pick<Board, 'title' | 'color' | 'icon' | 'buttons'>> }
   | { type: 'powerUp/set'; key: PowerUpKey; enabled: boolean }
   | { type: 'label/rename'; labelId: string; name: string }
+  /** Puts someone on the board's roster, or updates the name they go by. Idempotent. */
+  | { type: 'member/seen'; member: BoardMember }
   | { type: 'list/add'; list: List }
   | { type: 'list/update'; listId: string; patch: Partial<Pick<List, 'title' | 'wipLimit'>> }
   | { type: 'list/move'; listId: string; toIndex: number }

@@ -30,6 +30,7 @@ import { useMe } from '../../../members/session';
 import { useBoardFocus } from '../../../notifications/team';
 import { assigneesOf } from '../../../shared/cards';
 import type { Card, CardLink } from '../../../shared/types';
+import { noteMember } from '../../../store/actions';
 import { redoMine, undoMine } from '../../../store/activity';
 import { pressButton } from '../../../store/buttons';
 import { inBoardOrder } from '../../../store/cardOps';
@@ -100,6 +101,13 @@ export default function BoardScreen() {
     },
     [id, visible],
   );
+  // Whoever opens the board joins its roster, so they can be assigned work and, later, recorded as
+  // having attended a meeting. Costs nothing when they are on it already (see `noteMember`).
+  useEffect(() => {
+    if (!ready || !id || !entry) return;
+    noteMember(id);
+  }, [ready, id, entry]);
+
   // Android's back button ends the selection before it leaves the board.
   useEffect(() => {
     if (!selection) return;

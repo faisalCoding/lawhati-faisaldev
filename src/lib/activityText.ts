@@ -99,6 +99,10 @@ export function describeWhat(what: ActivityWhat, n = 1, tasks = 1): string {
       return `${what.on ? 'تفعيل' : 'إيقاف'} إضافة ${q(POWER_UP_NAMES[what.key] ?? what.key)}`;
     case 'label/rename':
       return what.name ? `تغيير اسم تسمية إلى ${q(what.name)}` : 'إزالة اسم تسمية';
+    case 'member/seen':
+      // The line reads after the person's name, and here they are the person: «فيصل: انضمام إلى
+      // اللوحة», not «… انضمام فيصل».
+      return what.renamed ? `تغيير الاسم إلى ${q(what.name)}` : 'انضمام إلى اللوحة';
   }
 }
 

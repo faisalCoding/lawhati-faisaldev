@@ -60,6 +60,20 @@ export function dispatch(boardId: string, input: OpInput) {
 }
 
 /**
+ * Puts whoever is using this device on a board's roster, so they can be assigned work and, later,
+ * recorded as having attended a meeting.
+ *
+ * Called every time a board is opened. The reducer ignores someone it already holds under the same
+ * name, and `dispatch` sends nothing when the board did not change — so the usual case is a
+ * comparison and no traffic. A guest who never gave a name adds nothing worth a row.
+ */
+export function noteMember(boardId: string) {
+  const actor = currentActor();
+  if (!actor.name.trim()) return;
+  dispatch(boardId, { type: 'member/seen', member: { id: actor.id, name: actor.name.trim(), at: Date.now() } });
+}
+
+/**
  * Resolves once the sync server has confirmed this board's pending changes, or after `timeoutMs`.
  * Screens that close right after a change (widget actions, quick add) use it so edits reach the
  * team before the app goes away; anything still unconfirmed is sent on the next connection.

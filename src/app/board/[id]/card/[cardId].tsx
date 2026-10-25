@@ -249,6 +249,7 @@ export default function CardScreen() {
         title={picker?.itemId ? 'إسناد المهمة' : 'إسناد البطاقة'}
       >
         <PeoplePicker
+          members={board.members ?? []}
           single={picker?.itemId != null}
           shared={shared}
           selected={
