@@ -42,10 +42,13 @@ $SUDO rm -rf /var/www/lawhati-app.old
 $SUDO a2enmod -q headers
 $SUDO install -m 644 /tmp/apache-lawhati.conf /etc/apache2/conf-available/lawhati.conf
 $SUDO a2enconf -q lawhati
-if $SUDO apachectl configtest 2>/dev/null; then
+# Apache's own words, not just "it said no": the message names the line and the reason, and
+# without it a rejection here is a guess. configtest writes to stderr even when it passes.
+if check="$($SUDO apachectl configtest 2>&1)"; then
   $SUDO systemctl reload apache2
 else
   echo "Apache rejected the configuration; rolling back." >&2
+  echo "$check" | sed 's/^/  /' >&2
   $SUDO a2disconf -q lawhati
   exit 1
 fi

@@ -63,10 +63,13 @@ $SUDO systemctl restart lawhati-faisaldev
 $SUDO a2enmod -q proxy proxy_http
 $SUDO install -m 644 /tmp/apache-lawhati-sync.conf /etc/apache2/conf-available/lawhati-faisaldev-sync.conf
 $SUDO a2enconf -q lawhati-faisaldev-sync
-if $SUDO apachectl configtest 2>/dev/null; then
+# Apache's own words, not just "it said no": the message names the line and the reason, and
+# without it a rejection here is a guess. configtest writes to stderr even when it passes.
+if check="$($SUDO apachectl configtest 2>&1)"; then
   $SUDO systemctl reload apache2
 else
   echo "Apache rejected the configuration; rolling back the proxy." >&2
+  echo "$check" | sed 's/^/  /' >&2
   $SUDO a2disconf -q lawhati-faisaldev-sync
   exit 1
 fi
