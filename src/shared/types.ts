@@ -136,6 +136,8 @@ export interface Outcome {
   due?: string | null;
   /** `task`: the card made from it, once one has been. Null while it is only written down. */
   cardId?: string | null;
+  /** `policy`: the standing rule it added or amended, once it has. */
+  policyId?: string | null;
 }
 
 /**
@@ -158,6 +160,32 @@ export interface Meeting {
   /** What the meeting decided, in the order it was written down. Older meetings lack it. */
   outcomes?: Outcome[];
   createdAt: number;
+}
+
+/** A heading the board's standing policies are filed under — «الرحلات», «الحضور والغياب». */
+export interface PolicySection {
+  id: string;
+  title: string;
+}
+
+/**
+ * One standing rule this board works by.
+ *
+ * Nearly half of what real meetings here produce reads this way: a limit, a procedure, who decides
+ * what. They are the lasting output, and the reason the minutes are worth keeping at all.
+ *
+ * There is no «repealed» state. A policy's history is the board's activity log, which already says
+ * who changed what and when; a second record of the same thing would be one more thing to keep
+ * true. A policy that no longer holds is removed, and the log still has it.
+ */
+export interface Policy {
+  id: string;
+  text: string;
+  /** The section it is filed under, or null for unfiled. */
+  sectionId?: string | null;
+  /** The meeting it came out of, when it came from one rather than being written down directly. */
+  meetingId?: string | null;
+  at: number;
 }
 
 export interface Board {
@@ -183,6 +211,10 @@ export interface Board {
   meetings?: Meeting[];
   /** The subjects its meetings keep returning to, in the order they are gone through. */
   agenda?: AgendaSubject[];
+  /** The standing rules it works by, in the order they are read. Older boards lack it. */
+  policies?: Policy[];
+  /** The headings those are filed under. */
+  policySections?: PolicySection[];
 }
 
 /**
@@ -268,7 +300,17 @@ export type ActivityWhat =
   | { type: 'agenda/add'; subject: string }
   | { type: 'agenda/title'; subject: string; from: string }
   | { type: 'agenda/move'; subject: string }
-  | { type: 'agenda/remove'; subject: string };
+  | { type: 'agenda/remove'; subject: string }
+  | { type: 'section/add'; section: string }
+  | { type: 'section/title'; section: string; from: string }
+  | { type: 'section/move'; section: string }
+  | { type: 'section/remove'; section: string; policies: number }
+  | { type: 'policy/add'; policy: string; section: string | null }
+  | { type: 'policy/text'; policy: string; from: string }
+  | { type: 'policy/file'; policy: string; section: string | null }
+  | { type: 'policy/move'; policy: string }
+  | { type: 'policy/remove'; policy: string }
+  | { type: 'outcome/policy'; meeting: string; text: string; added: boolean };
 
 /**
  * One operation that undoes part of a change. `expect` holds the values the change left: undoing
@@ -348,13 +390,21 @@ export type OpInput =
       type: 'outcome/update';
       meetingId: string;
       outcomeId: string;
-      patch: Partial<Pick<Outcome, 'kind' | 'text' | 'topicId' | 'assignee' | 'due' | 'cardId'>>;
+      patch: Partial<Pick<Outcome, 'kind' | 'text' | 'topicId' | 'assignee' | 'due' | 'cardId' | 'policyId'>>;
     }
   | { type: 'outcome/remove'; meetingId: string; outcomeId: string }
   | { type: 'agenda/add'; subject: AgendaSubject; index?: number }
   | { type: 'agenda/update'; subjectId: string; patch: Partial<Pick<AgendaSubject, 'title'>> }
   | { type: 'agenda/move'; subjectId: string; toIndex: number }
-  | { type: 'agenda/remove'; subjectId: string };
+  | { type: 'agenda/remove'; subjectId: string }
+  | { type: 'section/add'; section: PolicySection; index?: number }
+  | { type: 'section/update'; sectionId: string; patch: Partial<Pick<PolicySection, 'title'>> }
+  | { type: 'section/move'; sectionId: string; toIndex: number }
+  | { type: 'section/remove'; sectionId: string }
+  | { type: 'policy/add'; policy: Policy; index?: number }
+  | { type: 'policy/update'; policyId: string; patch: Partial<Pick<Policy, 'text' | 'sectionId' | 'meetingId'>> }
+  | { type: 'policy/move'; policyId: string; toIndex: number }
+  | { type: 'policy/remove'; policyId: string };
 
 /** How an operation is recorded in the board's activity. */
 export interface OpMeta {

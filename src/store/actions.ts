@@ -124,6 +124,50 @@ export function cardFromOutcome(boardId: string, meetingId: string, outcomeId: s
 }
 
 /**
+ * Carries a meeting's policy outcome into the board's standing policies — writing a new rule, or
+ * replacing the text of one already there when `amends` names it.
+ *
+ * Nearly half of what these meetings produce is a standing rule, and the sixth meeting amended a
+ * limit the fourth had set. Both paths record the meeting, so every rule says where it came from.
+ *
+ * The link is dispatched before the rule is written, which is what lets the activity tell «agreed
+ * a policy» from «amended one»: afterwards both look alike. Returns the policy's id.
+ */
+export function policyFromOutcome(
+  boardId: string,
+  meetingId: string,
+  outcomeId: string,
+  options: { amends?: string | null; sectionId?: string | null } = {},
+): string | null {
+  const board = store.get().boards[boardId]?.board;
+  const outcome = board?.meetings?.find((m) => m.id === meetingId)?.outcomes?.find((o) => o.id === outcomeId);
+  if (!board || !outcome || outcome.policyId) return null;
+
+  const existing = options.amends ? (board.policies ?? []).find((x) => x.id === options.amends) : undefined;
+  const policyId = existing?.id ?? uid();
+
+  batch(() => {
+    dispatch(boardId, { type: 'outcome/update', meetingId, outcomeId, patch: { policyId } });
+    if (existing) {
+      dispatch(boardId, { type: 'policy/update', policyId, patch: { text: outcome.text, meetingId } });
+    } else {
+      dispatch(boardId, {
+        type: 'policy/add',
+        policy: {
+          id: policyId,
+          text: outcome.text,
+          sectionId: options.sectionId ?? null,
+          meetingId,
+          at: Date.now(),
+        },
+      });
+    }
+  });
+
+  return policyId;
+}
+
+/**
  * Puts whoever is using this device on a board's roster, so they can be assigned work and, later,
  * recorded as having attended a meeting.
  *

@@ -35,6 +35,15 @@ export function pluralTopics(n: number, genitive = false): string {
   return `${n} محورًا`;
 }
 
+/** Like `pluralCards`, for the board's standing policies. */
+export function pluralPolicies(n: number, genitive = false): string {
+  if (n === 0) return 'بلا سياسات';
+  if (n === 1) return 'سياسة واحدة';
+  if (n === 2) return genitive ? 'سياستين' : 'سياستان';
+  if (n <= 10) return `${n} سياسات`;
+  return `${n} سياسة`;
+}
+
 export function pluralLists(n: number): string {
   if (n === 0) return 'لا قوائم';
   if (n === 1) return 'قائمة واحدة';

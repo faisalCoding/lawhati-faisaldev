@@ -10,6 +10,7 @@ import type {
   Outcome,
   Op,
   OpInput,
+  Policy,
   UndoStep,
 } from './types';
 
@@ -34,13 +35,15 @@ export const CARD_FIELDS = ['title', 'description', 'due', 'dueDone', 'cover', '
 export const CHECK_FIELDS = ['text', 'done', 'assignee'] as const;
 export const MEETING_FIELDS = ['title', 'date', 'place'] as const;
 export const TOPIC_FIELDS = ['title', 'notes'] as const;
-export const OUTCOME_FIELDS = ['kind', 'text', 'topicId', 'assignee', 'due', 'cardId'] as const;
+export const OUTCOME_FIELDS = ['kind', 'text', 'topicId', 'assignee', 'due', 'cardId', 'policyId'] as const;
+export const POLICY_FIELDS = ['text', 'sectionId', 'meetingId'] as const;
 
 type BoardField = (typeof BOARD_FIELDS)[number];
 type CardField = (typeof CARD_FIELDS)[number];
 type CheckField = (typeof CHECK_FIELDS)[number];
 type MeetingField = (typeof MEETING_FIELDS)[number];
 type OutcomeField = (typeof OUTCOME_FIELDS)[number];
+type PolicyField = (typeof POLICY_FIELDS)[number];
 
 /** Whether two values are the same, a missing value counting as null. */
 export const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -61,8 +64,22 @@ export function outcomeField(outcome: Outcome, key: OutcomeField): unknown {
       return outcome.due ?? null;
     case 'cardId':
       return outcome.cardId ?? null;
+    case 'policyId':
+      return outcome.policyId ?? null;
     default:
       return outcome[key];
+  }
+}
+
+/** A policy's field as every version reads it: an unfiled rule and one with no meeting read null. */
+export function policyField(policy: Policy, key: PolicyField): unknown {
+  switch (key) {
+    case 'sectionId':
+      return policy.sectionId ?? null;
+    case 'meetingId':
+      return policy.meetingId ?? null;
+    default:
+      return policy[key];
   }
 }
 
@@ -187,6 +204,14 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
       if ((was.cardId ?? null) !== (now.cardId ?? null) && now.cardId) {
         return { type: 'outcome/card', meeting: meeting.title, text: now.text };
       }
+      if ((was.policyId ?? null) !== (now.policyId ?? null) && now.policyId) {
+        // Whether it wrote a new rule or amended one already there — a reader wants to know which.
+        // Read from the rule's absence at the moment the link is made, which is why the link is
+        // dispatched before the rule is written (see `policyFromOutcome`): afterwards every rule
+        // exists and the two cases are indistinguishable from here.
+        const existed = (before.policies ?? []).some((x) => x.id === now.policyId);
+        return { type: 'outcome/policy', meeting: meeting.title, text: now.text, added: !existed };
+      }
       if (was.kind !== now.kind) return { type: 'outcome/kind', meeting: meeting.title, text: now.text, kind: now.kind };
       if ((was.topicId ?? null) !== (now.topicId ?? null)) {
         const topic = meeting.topics.find((t) => t.id === now.topicId);
@@ -222,6 +247,45 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
     case 'agenda/remove': {
       const subject = (before.agenda ?? []).find((a) => a.id === op.subjectId);
       return subject ? { type: 'agenda/remove', subject: subject.title } : null;
+    }
+    case 'section/add':
+      return { type: 'section/add', section: op.section.title };
+    case 'section/update': {
+      const was = (before.policySections ?? []).find((x) => x.id === op.sectionId);
+      const now = (after.policySections ?? []).find((x) => x.id === op.sectionId);
+      return was && now && was.title !== now.title ? { type: 'section/title', section: now.title, from: was.title } : null;
+    }
+    case 'section/move': {
+      const section = (after.policySections ?? []).find((x) => x.id === op.sectionId);
+      return section ? { type: 'section/move', section: section.title } : null;
+    }
+    case 'section/remove': {
+      const section = (before.policySections ?? []).find((x) => x.id === op.sectionId);
+      const count = (before.policies ?? []).filter((x) => x.sectionId === op.sectionId).length;
+      return section ? { type: 'section/remove', section: section.title, policies: count } : null;
+    }
+    case 'policy/add': {
+      const section = (after.policySections ?? []).find((x) => x.id === op.policy.sectionId);
+      return { type: 'policy/add', policy: op.policy.text, section: section?.title ?? null };
+    }
+    case 'policy/update': {
+      const was = (before.policies ?? []).find((x) => x.id === op.policyId);
+      const now = (after.policies ?? []).find((x) => x.id === op.policyId);
+      if (!was || !now) return null;
+      if (was.text !== now.text) return { type: 'policy/text', policy: now.text, from: was.text };
+      if ((was.sectionId ?? null) !== (now.sectionId ?? null)) {
+        const section = (after.policySections ?? []).find((x) => x.id === now.sectionId);
+        return { type: 'policy/file', policy: now.text, section: section?.title ?? null };
+      }
+      return null;
+    }
+    case 'policy/move': {
+      const policy = (after.policies ?? []).find((x) => x.id === op.policyId);
+      return policy ? { type: 'policy/move', policy: policy.text } : null;
+    }
+    case 'policy/remove': {
+      const policy = (before.policies ?? []).find((x) => x.id === op.policyId);
+      return policy ? { type: 'policy/remove', policy: policy.text } : null;
     }
     case 'member/seen': {
       const was = (before.members ?? []).some((m) => m.id === op.member.id);
@@ -426,6 +490,57 @@ export function undoOf(before: Board, after: Board, op: Op): UndoStep[] {
       const from = (before.agenda ?? []).findIndex((a) => a.id === op.subjectId);
       return from < 0 ? [] : [{ op: { type: 'agenda/move', subjectId: op.subjectId, toIndex: from } }];
     }
+    case 'section/add':
+      return [{ op: { type: 'section/remove', sectionId: op.section.id } }];
+    case 'section/update': {
+      const was = (before.policySections ?? []).find((x) => x.id === op.sectionId);
+      return was && op.patch.title !== undefined && was.title !== op.patch.title
+        ? [{ op: { type: 'section/update', sectionId: op.sectionId, patch: { title: was.title } }, expect: { title: op.patch.title } }]
+        : [];
+    }
+    case 'section/move': {
+      const from = (before.policySections ?? []).findIndex((x) => x.id === op.sectionId);
+      return from < 0 ? [] : [{ op: { type: 'section/move', sectionId: op.sectionId, toIndex: from } }];
+    }
+    case 'section/remove': {
+      const sections = before.policySections ?? [];
+      const index = sections.findIndex((x) => x.id === op.sectionId);
+      if (index < 0) return [];
+      // The heading comes back, and every rule that was under it goes back under it.
+      return [
+        { op: { type: 'section/add', section: sections[index], index } },
+        ...(before.policies ?? [])
+          .filter((x) => x.sectionId === op.sectionId)
+          .map((x): UndoStep => ({ op: { type: 'policy/update', policyId: x.id, patch: { sectionId: op.sectionId } } })),
+      ];
+    }
+
+    case 'policy/add':
+      return [{ op: { type: 'policy/remove', policyId: op.policy.id } }];
+    case 'policy/update': {
+      const was = (before.policies ?? []).find((x) => x.id === op.policyId);
+      const now = (after.policies ?? []).find((x) => x.id === op.policyId);
+      const c =
+        was && now
+          ? changes(
+              POLICY_FIELDS,
+              op.patch,
+              (k) => policyField(was, k),
+              (k) => policyField(now, k),
+            )
+          : null;
+      return c ? [{ op: { type: 'policy/update', policyId: op.policyId, patch: c.patch }, expect: c.expect }] : [];
+    }
+    case 'policy/move': {
+      const from = (before.policies ?? []).findIndex((x) => x.id === op.policyId);
+      return from < 0 ? [] : [{ op: { type: 'policy/move', policyId: op.policyId, toIndex: from } }];
+    }
+    case 'policy/remove': {
+      const policies = before.policies ?? [];
+      const index = policies.findIndex((x) => x.id === op.policyId);
+      return index >= 0 ? [{ op: { type: 'policy/add', policy: policies[index], index } }] : [];
+    }
+
     case 'agenda/remove': {
       const agenda = before.agenda ?? [];
       const index = agenda.findIndex((a) => a.id === op.subjectId);
@@ -752,6 +867,26 @@ export function stillApplies(board: Board, step: UndoStep): OpInput | null {
     case 'agenda/update': {
       const subject = (board.agenda ?? []).find((a) => a.id === op.subjectId);
       return subject && (!expect || same(subject.title, expect.title)) ? op : null;
+    }
+
+    case 'section/add':
+      return (board.policySections ?? []).some((x) => x.id === op.section.id) ? null : op;
+    case 'section/move':
+    case 'section/remove':
+      return (board.policySections ?? []).some((x) => x.id === op.sectionId) ? op : null;
+    case 'section/update': {
+      const section = (board.policySections ?? []).find((x) => x.id === op.sectionId);
+      return section && (!expect || same(section.title, expect.title)) ? op : null;
+    }
+    case 'policy/add':
+      return (board.policies ?? []).some((x) => x.id === op.policy.id) ? null : op;
+    case 'policy/move':
+    case 'policy/remove':
+      return (board.policies ?? []).some((x) => x.id === op.policyId) ? op : null;
+    case 'policy/update': {
+      const policy = (board.policies ?? []).find((x) => x.id === op.policyId);
+      const patch = policy ? kept(op.patch, (k) => policyField(policy, k as PolicyField)) : null;
+      return patch ? ({ ...op, patch } as OpInput) : null;
     }
 
     default:

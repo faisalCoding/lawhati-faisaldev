@@ -5,7 +5,7 @@
 
 import { stillApplies, undoOf } from '../src/shared/activity';
 import { applyOp } from '../src/shared/reducer';
-import type { AgendaSubject, Board, Meeting, MeetingTopic, Outcome, Op } from '../src/shared/types';
+import type { AgendaSubject, Board, Meeting, MeetingTopic, Outcome, Op, Policy, PolicySection } from '../src/shared/types';
 
 const board = (): Board => ({
   id: 'b', title: 'لوحة', color: '#000', icon: 'grid',
@@ -209,6 +209,24 @@ const roundTrip = (start: Board, change: Op, label: string) => {
   ok(`التراجع يُعيد الحال: ${label}`, strip(back) === strip(start));
 };
 
+/** Like `roundTrip`, normalising the policy fields the model gives defaults to. */
+const roundTripP = (start: Board, change: Op, label: string) => {
+  const after = applyOp(start, change);
+  let back = after;
+  for (const step of undoOf(start, after, change)) {
+    const undo = stillApplies(back, step);
+    if (undo) back = applyOp(back, { ...undo, id: `up${++seq}`, at: 9700 + seq, by: null } as Op);
+  }
+  const strip = (b: Board) =>
+    JSON.stringify({
+      ...b,
+      activity: undefined,
+      updatedAt: 0,
+      policies: (b.policies ?? []).map((x) => ({ ...x, sectionId: x.sectionId ?? null, meetingId: x.meetingId ?? null })),
+    });
+  ok(`التراجع يُعيد الحال: ${label}`, strip(back) === strip(start));
+};
+
 const base = applyOp(board(), op({ type: 'meeting/add', meeting: meeting('a', '2026-01-10') }));
 const withTopics = applyOp(applyOp(base, op({ type: 'topic/add', meetingId: 'a', topic: topic('t1') })),
                            op({ type: 'topic/add', meetingId: 'a', topic: topic('t2') }));
@@ -297,6 +315,69 @@ roundTrip(a2, op({ type: 'agenda/update', subjectId: 's1', patch: { title: 'ال
 roundTrip(a2, op({ type: 'agenda/move', subjectId: 's1', toIndex: 1 }), 'نقل محور ثابت');
 roundTrip(a2, op({ type: 'agenda/remove', subjectId: 's1' }), 'حذف محور ثابت');
 roundTrip(withOutcomeUnderTopic, op({ type: 'outcome/update', meetingId: 'a', outcomeId: 'o1', patch: { topicId: null } }), 'نقل توصية إلى العام');
+
+
+// ── السياسات ────────────────────────────────────────────────────────────────
+const section = (id: string, title = `قسم ${id}`): PolicySection => ({ id, title });
+const policy = (id: string, text = `سياسة ${id}`, sectionId: string | null = null): Policy =>
+  ({ id, text, sectionId, at: 1 });
+const polsOf = (b: Board) => (b.policies ?? []).map((x) => x.id).join('');
+const secsOf = (b: Board) => (b.policySections ?? []).map((x) => x.id).join('');
+
+const sec = applyOp(applyOp(board(), op({ type: 'section/add', section: section('c1', 'الرحلات') })),
+                    op({ type: 'section/add', section: section('c2', 'الحضور والغياب') }));
+ok('تُضاف أقسام السياسات', secsOf(sec) === 'c1c2');
+ok('بلا تكرار', applyOp(sec, op({ type: 'section/add', section: section('c1') })) === sec);
+ok('وتُرتَّب', secsOf(applyOp(sec, op({ type: 'section/move', sectionId: 'c2', toIndex: 0 }))) === 'c2c1');
+
+const pol = applyOp(
+  applyOp(sec, op({ type: 'policy/add', policy: policy('p1', 'يُمنع الالتحاق عند التأخر', 'c1') })),
+  op({ type: 'policy/add', policy: policy('p2', 'حد التأخر بلا عذر', 'c2') }),
+);
+ok('تُضاف السياسات', polsOf(pol) === 'p1p2');
+ok('ويُذكر قسمها في النشاط', (pol.activity?.at(-1)?.what as { section: string }).section === 'الحضور والغياب');
+
+const amended = applyOp(pol, op({ type: 'policy/update', policyId: 'p2', patch: { text: 'يمكن تعويض تأخّرات الأسبوع نفسه' } }));
+ok('تُعدَّل السياسة', (amended.policies ?? [])[1].text === 'يمكن تعويض تأخّرات الأسبوع نفسه');
+ok('ويُحفظ نصّها السابق في السجلّ', (amended.activity?.at(-1)?.what as { from: string }).from === 'حد التأخر بلا عذر');
+ok('نفس النصّ لا يغيّر شيئًا', applyOp(amended, op({ type: 'policy/update', policyId: 'p2', patch: { text: 'يمكن تعويض تأخّرات الأسبوع نفسه' } })) === amended);
+
+// حذف القسم لا يحذف سياساته
+const cutSec = applyOp(pol, op({ type: 'section/remove', sectionId: 'c1' }));
+ok('حذف القسم يُبقي سياساته', polsOf(cutSec) === 'p1p2');
+ok('وتصير بلا قسم لا معلّقة', (cutSec.policies ?? [])[0].sectionId === null);
+ok('ويُذكر عددها في السجلّ', (cutSec.activity?.at(-1)?.what as { policies: number }).policies === 1);
+
+// من الاجتماع إلى السياسات
+const mt = applyOp(pol, op({ type: 'meeting/add', meeting: meeting('a', '2026-01-10') }));
+const withPolicyOutcome = applyOp(mt, op({
+  type: 'outcome/add', meetingId: 'a',
+  outcome: { id: 'po1', kind: 'policy', text: 'حد التعثّر القرآني' },
+}));
+// الربط أولًا ثم كتابة السياسة — وهو ترتيب `policyFromOutcome` نفسه، وعليه يقوم تمييز
+// «إقرار» من «تعديل»: بعد الكتابة تصير كل سياسة موجودة فلا يُفرَّق بين الحالتين.
+const newPolicy = applyOp(
+  applyOp(withPolicyOutcome, op({ type: 'outcome/update', meetingId: 'a', outcomeId: 'po1', patch: { policyId: 'p9' } })),
+  op({ type: 'policy/add', policy: { id: 'p9', text: 'حد التعثّر القرآني', sectionId: 'c1', meetingId: 'a', at: 2 } }),
+);
+ok('السياسة تحفظ الاجتماع الذي أقرّها', (newPolicy.policies ?? []).find((x) => x.id === 'p9')?.meetingId === 'a');
+ok('ويُسجَّل إقرارًا لا تعديلًا', (newPolicy.activity?.find((e) => e.what.type === 'outcome/policy')?.what as { added: boolean }).added === true);
+
+const amendExisting = applyOp(
+  applyOp(withPolicyOutcome, op({ type: 'outcome/update', meetingId: 'a', outcomeId: 'po1', patch: { policyId: 'p2' } })),
+  op({ type: 'policy/update', policyId: 'p2', patch: { text: 'حد التعثّر القرآني', meetingId: 'a' } }),
+);
+ok('وتعديل سياسة قائمة يُسجَّل تعديلًا', (amendExisting.activity?.find((e) => e.what.type === 'outcome/policy')?.what as { added: boolean }).added === false);
+
+// التراجع
+roundTripP(sec, op({ type: 'section/add', section: section('c3') }), 'إضافة قسم');
+roundTripP(sec, op({ type: 'section/update', sectionId: 'c1', patch: { title: 'الرحلات والمخيمات' } }), 'تعديل اسم قسم');
+roundTripP(sec, op({ type: 'section/move', sectionId: 'c1', toIndex: 1 }), 'ترتيب قسم');
+roundTripP(pol, op({ type: 'section/remove', sectionId: 'c1' }), 'حذف قسم بسياساته');
+roundTripP(pol, op({ type: 'policy/add', policy: policy('p3') }), 'إضافة سياسة');
+roundTripP(pol, op({ type: 'policy/update', policyId: 'p1', patch: { text: 'نصّ آخر', sectionId: 'c2' } }), 'تعديل سياسة ونقلها');
+roundTripP(pol, op({ type: 'policy/move', policyId: 'p1', toIndex: 1 }), 'ترتيب سياسة');
+roundTripP(pol, op({ type: 'policy/remove', policyId: 'p1' }), 'حذف سياسة');
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);

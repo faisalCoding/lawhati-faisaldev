@@ -18,7 +18,7 @@ import { OUTCOME_NAMES } from '../../../../lib/activityText';
 import { colors } from '../../../../lib/theme';
 import type { IconName } from '../../../../components/ui/iconData';
 import type { Board, Meeting, MeetingTopic, Outcome, OutcomeKind } from '../../../../shared/types';
-import { cardFromOutcome, dispatch } from '../../../../store/actions';
+import { cardFromOutcome, dispatch, policyFromOutcome } from '../../../../store/actions';
 import { useBoard } from '../../../../store/store';
 
 /** One meeting: when and where it was, who was there, and its agenda. */
@@ -245,6 +245,7 @@ const KINDS: { kind: OutcomeKind; icon: IconName; hint: string }[] = [
   { kind: 'assignment', icon: 'user', hint: 'يحملها أحدهم من الآن فصاعدًا — لا تنتهي' },
   { kind: 'note', icon: 'description', hint: 'خلاصة أو ملخّص نقاش' },
   { kind: 'announcement', icon: 'info', hint: 'توجيه عامّ للجميع' },
+  { kind: 'policy', icon: 'book', hint: 'قاعدة دائمة تدخل السياسات' },
 ];
 
 /** The kinds that belong to a person: a task is owed, a responsibility is held. */
@@ -342,9 +343,11 @@ function OutcomesSection({ board, meeting }: { board: Board; meeting: Meeting })
 
 function OutcomeRow({ board, meeting, outcome }: { board: Board; meeting: Meeting; outcome: Outcome }) {
   const [picking, setPicking] = useState(false);
+  const [deciding, setDeciding] = useState(false);
   const isTask = outcome.kind === 'task';
   const hasOwner = HAS_OWNER.includes(outcome.kind);
   const card = outcome.cardId ? board.cards[outcome.cardId] : undefined;
+  const policy = outcome.policyId ? (board.policies ?? []).find((p) => p.id === outcome.policyId) : undefined;
   const update = (patch: Parameters<typeof dispatchOutcome>[3]) =>
     dispatchOutcome(board.id, meeting.id, outcome.id, patch);
 
@@ -395,6 +398,25 @@ function OutcomeRow({ board, meeting, outcome }: { board: Board; meeting: Meetin
         ) : null}
       </View>
 
+      {outcome.kind === 'policy' ? (
+        policy ? (
+          <Pressable
+            onPress={() => router.push(`/board/${board.id}/policies`)}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.cardLink, pressed && styles.pressed]}
+          >
+            <Icon name="book" size={14} color={colors.success} />
+            <Txt style={styles.cardLinkText} numberOfLines={1}>
+              في السياسات: {policy.text}
+            </Txt>
+          </Pressable>
+        ) : outcome.policyId ? (
+          <Txt style={styles.note}>كانت سياسةً، وقد حُذفت.</Txt>
+        ) : (
+          <Button title="أقرّها في السياسات" icon="book" variant="secondary" onPress={() => setDeciding(true)} />
+        )
+      ) : null}
+
       {isTask ? (
         <>
           {card ? (
@@ -422,6 +444,42 @@ function OutcomeRow({ board, meeting, outcome }: { board: Board; meeting: Meetin
           )}
         </>
       ) : null}
+
+      {/* A policy outcome either writes a new rule or replaces one already there — the sixth
+          meeting amended a limit the fourth had set, and losing that thread loses the story. */}
+      <Sheet visible={deciding} onClose={() => setDeciding(false)} title="أقرّها في السياسات">
+        <ScrollView style={styles.sheetList} keyboardShouldPersistTaps="handled">
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              policyFromOutcome(board.id, meeting.id, outcome.id);
+              setDeciding(false);
+            }}
+            style={({ pressed }) => [styles.choice, pressed && styles.pressed]}
+          >
+            <Icon name="plus" size={16} color={colors.primary} />
+            <Txt style={styles.choiceNew}>سياسة جديدة</Txt>
+          </Pressable>
+
+          {(board.policies ?? []).length ? <Txt style={styles.choiceHead}>أو تعدّل سياسة قائمة:</Txt> : null}
+          {(board.policies ?? []).map((p) => (
+            <Pressable
+              key={p.id}
+              accessibilityRole="button"
+              onPress={() => {
+                policyFromOutcome(board.id, meeting.id, outcome.id, { amends: p.id });
+                setDeciding(false);
+              }}
+              style={({ pressed }) => [styles.choice, pressed && styles.pressed]}
+            >
+              <Icon name="replace" size={16} color={colors.textSubtle} />
+              <Txt style={styles.choiceText} numberOfLines={2}>
+                {p.text}
+              </Txt>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </Sheet>
 
       <Sheet visible={picking} onClose={() => setPicking(false)} title="مسؤول التوصية">
         <PeoplePicker
@@ -518,6 +576,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.successBg,
   },
   cardLinkText: { flex: 1, fontSize: 13, color: colors.success, fontWeight: '700' },
+  sheetList: { maxHeight: 420 },
+  choice: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  choiceNew: { flex: 1, fontSize: 15, fontWeight: '700', color: colors.primary },
+  choiceText: { flex: 1, fontSize: 14, lineHeight: 24 },
+  choiceHead: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 6, fontSize: 12.5, color: colors.textSubtle },
   addRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8, marginTop: 12 },
   addInput: { flex: 1, fontSize: 15 },
 });

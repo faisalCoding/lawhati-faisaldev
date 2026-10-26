@@ -9,6 +9,8 @@ import {
   meetingField,
   OUTCOME_FIELDS,
   outcomeField,
+  POLICY_FIELDS,
+  policyField,
   record,
   same,
   TOPIC_FIELDS,
@@ -346,6 +348,82 @@ function reduce(board: Board, op: Op): Board {
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);
       return { ...board, agenda: next };
+    }
+
+    case 'section/add': {
+      const sections = board.policySections ?? [];
+      if (sections.some((x) => x.id === op.section.id)) return board;
+      return { ...board, policySections: insertAt(sections, op.index ?? sections.length, op.section) };
+    }
+
+    case 'section/update': {
+      const sections = board.policySections ?? [];
+      const index = sections.findIndex((x) => x.id === op.sectionId);
+      if (index < 0 || op.patch.title === undefined || sections[index].title === op.patch.title) return board;
+      const next = sections.slice();
+      next[index] = { ...next[index], title: op.patch.title };
+      return { ...board, policySections: next };
+    }
+
+    case 'section/move': {
+      const sections = board.policySections ?? [];
+      const from = sections.findIndex((x) => x.id === op.sectionId);
+      if (from < 0) return board;
+      const to = clampIndex(op.toIndex, sections.length - 1);
+      if (from === to) return board;
+      const next = sections.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return { ...board, policySections: next };
+    }
+
+    case 'section/remove': {
+      const sections = board.policySections ?? [];
+      if (!sections.some((x) => x.id === op.sectionId)) return board;
+      // Its rules are not deleted with the heading: they become unfiled. Losing a rule because a
+      // heading was tidied away would be the worst thing this board could do.
+      const policies = board.policies?.map((x) => (x.sectionId === op.sectionId ? { ...x, sectionId: null } : x));
+      return {
+        ...board,
+        policySections: sections.filter((x) => x.id !== op.sectionId),
+        ...(policies ? { policies } : {}),
+      };
+    }
+
+    case 'policy/add': {
+      const policies = board.policies ?? [];
+      if (policies.some((x) => x.id === op.policy.id)) return board;
+      return { ...board, policies: insertAt(policies, op.index ?? policies.length, op.policy) };
+    }
+
+    case 'policy/update': {
+      const policies = board.policies ?? [];
+      const index = policies.findIndex((x) => x.id === op.policyId);
+      if (index < 0) return board;
+      const patch = pick(op.patch, POLICY_FIELDS);
+      const keys = Object.keys(patch) as (keyof typeof patch)[];
+      if (keys.every((key) => same(patch[key], policyField(policies[index], key)))) return board;
+      const next = policies.slice();
+      next[index] = { ...next[index], ...patch };
+      return { ...board, policies: next };
+    }
+
+    case 'policy/move': {
+      const policies = board.policies ?? [];
+      const from = policies.findIndex((x) => x.id === op.policyId);
+      if (from < 0) return board;
+      const to = clampIndex(op.toIndex, policies.length - 1);
+      if (from === to) return board;
+      const next = policies.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return { ...board, policies: next };
+    }
+
+    case 'policy/remove': {
+      const policies = board.policies ?? [];
+      if (!policies.some((x) => x.id === op.policyId)) return board;
+      return { ...board, policies: policies.filter((x) => x.id !== op.policyId) };
     }
 
     case 'agenda/remove': {

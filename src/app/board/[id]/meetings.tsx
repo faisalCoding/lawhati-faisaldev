@@ -48,6 +48,17 @@ export default function MeetingsScreen() {
   return (
     <View style={styles.screen}>
       <ModalHeader title="الاجتماعات" onClose={goBack} />
+      {/* The rules the meetings produce live one tap away, because they are read far more often
+          than the minutes they came out of. */}
+      <Pressable
+        onPress={() => router.push(`/board/${id}/policies`)}
+        accessibilityRole="button"
+        style={({ pressed }) => [styles.policiesLink, pressed && styles.pressed]}
+      >
+        <Icon name="book" size={16} color={colors.primary} />
+        <Txt style={styles.policiesLinkText}>السياسات</Txt>
+        <Icon name="chevron-left" size={16} color={colors.primary} />
+      </Pressable>
       <AvoidKeyboard style={styles.flex}>
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
@@ -193,6 +204,18 @@ const styles = StyleSheet.create({
   rowTitle: { fontSize: 15, fontWeight: '700' },
   rowMeta: { fontSize: 12.5, color: colors.textSubtle },
   agendaHint: { fontSize: 12.5, color: colors.textFaint, paddingHorizontal: 2 },
+  policiesLink: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: colors.list,
+  },
+  policiesLinkText: { flex: 1, fontSize: 14, fontWeight: '700', color: colors.primary },
   count: { marginStart: 'auto', fontSize: 12.5, color: colors.textSubtle },
   note: { fontSize: 13, color: colors.textSubtle, lineHeight: 24 },
   agendaList: { gap: 6, marginTop: 10 },

@@ -1,7 +1,7 @@
 import { revertDepth } from '../shared/activity';
 import type { ActivityEntry, ActivityWhat, OutcomeKind, PowerUpKey } from '../shared/types';
 import { formatShortDate, toISODate } from './dates';
-import { pluralCards, pluralTasks, pluralTopics } from './text';
+import { pluralCards, pluralPolicies, pluralTasks, pluralTopics } from './text';
 
 // The board's activity in words. Each line names the change as a verbal noun («إنجاز البطاقة…»)
 // after the person's name, so it reads the same whoever made it.
@@ -12,7 +12,7 @@ export const OUTCOME_NAMES: Record<OutcomeKind, string> = {
   assignment: 'مسؤولية',
   note: 'ملاحظة',
   announcement: 'إعلان',
-  policy: 'تعديل سياسة',
+  policy: 'سياسة',
 };
 
 const POWER_UP_NAMES: Record<PowerUpKey, string> = {
@@ -158,6 +158,30 @@ export function describeWhat(what: ActivityWhat, n = 1, tasks = 1): string {
       return `ترتيب المحور الثابت ${q(what.subject)}`;
     case 'agenda/remove':
       return `حذف المحور الثابت ${q(what.subject)}`;
+    case 'section/add':
+      return `إضافة قسم سياسات ${q(what.section)}`;
+    case 'section/title':
+      return `تغيير قسم ${q(what.from)} إلى ${q(what.section)}`;
+    case 'section/move':
+      return `ترتيب قسم ${q(what.section)}`;
+    case 'section/remove':
+      return what.policies
+        ? `حذف قسم ${q(what.section)}، وبقاء ${pluralPolicies(what.policies)} بلا قسم`
+        : `حذف قسم ${q(what.section)}`;
+    case 'policy/add':
+      return what.section ? `إضافة سياسة ${q(what.policy)} إلى ${q(what.section)}` : `إضافة سياسة ${q(what.policy)}`;
+    case 'policy/text':
+      return `تعديل سياسة ${q(what.from)} إلى ${q(what.policy)}`;
+    case 'policy/file':
+      return what.section ? `نقل سياسة ${q(what.policy)} إلى ${q(what.section)}` : `إخراج سياسة ${q(what.policy)} من قسمها`;
+    case 'policy/move':
+      return `ترتيب سياسة ${q(what.policy)}`;
+    case 'policy/remove':
+      return `حذف سياسة ${q(what.policy)}`;
+    case 'outcome/policy':
+      return what.added
+        ? `إقرار ${q(what.text)} سياسةً من ${q(what.meeting)}`
+        : `تعديل سياسة بـ ${q(what.text)} من ${q(what.meeting)}`;
     case 'member/seen':
       // The line reads after the person's name, and here they are the person: «فيصل: انضمام إلى
       // اللوحة», not «… انضمام فيصل».
