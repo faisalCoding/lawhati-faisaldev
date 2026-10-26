@@ -212,6 +212,12 @@ export default function BoardScreen() {
           ) : null}
         </Pressable>
         <IconButton
+          name="calendar"
+          label="الاجتماعات"
+          color="#FFFFFF"
+          onPress={() => router.push(`/board/${id}/meetings`)}
+        />
+        <IconButton
           name="history"
           label="سجل الأحداث"
           color="#FFFFFF"

@@ -1,8 +1,24 @@
-import { BOARD_FIELDS, CARD_FIELDS, cardField, CHECK_FIELDS, checkField, LIST_FIELDS, record, same } from './activity';
-import type { Board, Card, List, Op } from './types';
+import {
+  BOARD_FIELDS,
+  CARD_FIELDS,
+  cardField,
+  CHECK_FIELDS,
+  checkField,
+  LIST_FIELDS,
+  MEETING_FIELDS,
+  meetingField,
+  record,
+  same,
+  TOPIC_FIELDS,
+} from './activity';
+import type { Board, Card, List, Meeting, MeetingTopic, Op } from './types';
 
 // Pure, deterministic board reducer. The app applies operations optimistically and
 // the sync server applies the same operations in its own order, so both must agree.
+
+/** Newest meeting first, and a stable order for two on the same day. */
+const byNewest = (a: Meeting, b: Meeting) =>
+  a.date === b.date ? b.createdAt - a.createdAt : (a.date < b.date ? 1 : -1);
 
 function clampIndex(index: number, length: number): number {
   const i = Number.isFinite(index) ? Math.round(index) : length;
@@ -43,6 +59,34 @@ function updateCard(board: Board, cardId: string, fn: (card: Card) => Card): Boa
   const next = fn(card);
   if (next === card) return board;
   return { ...board, cards: { ...board.cards, [cardId]: next } };
+}
+
+function updateMeeting(board: Board, meetingId: string, fn: (meeting: Meeting) => Meeting): Board {
+  const meetings = board.meetings ?? [];
+  const index = meetings.findIndex((m) => m.id === meetingId);
+  if (index < 0) return board;
+  const next = fn(meetings[index]);
+  if (next === meetings[index]) return board;
+  const copy = meetings.slice();
+  copy[index] = next;
+  return { ...board, meetings: copy };
+}
+
+function updateTopic(
+  board: Board,
+  meetingId: string,
+  topicId: string,
+  fn: (topic: MeetingTopic) => MeetingTopic,
+): Board {
+  return updateMeeting(board, meetingId, (meeting) => {
+    const index = meeting.topics.findIndex((t) => t.id === topicId);
+    if (index < 0) return meeting;
+    const next = fn(meeting.topics[index]);
+    if (next === meeting.topics[index]) return meeting;
+    const topics = meeting.topics.slice();
+    topics[index] = next;
+    return { ...meeting, topics };
+  });
 }
 
 function reduce(board: Board, op: Op): Board {
@@ -177,6 +221,76 @@ function reduce(board: Board, op: Op): Board {
         c.checklist.some((i) => i.id === op.itemId)
           ? { ...c, checklist: c.checklist.filter((i) => i.id !== op.itemId) }
           : c,
+      );
+
+    case 'meeting/add': {
+      const meetings = board.meetings ?? [];
+      if (meetings.some((m) => m.id === op.meeting.id)) return board;
+      // Newest first: a meeting is read right after it is held, and the list is browsed from today
+      // backwards. The date decides, not the order they were typed in — minutes are often written
+      // up late, and one entered today about last week belongs under last week.
+      const next = [...meetings, op.meeting].sort(byNewest);
+      return { ...board, meetings: next };
+    }
+
+    case 'meeting/update':
+      return updateMeeting(board, op.meetingId, (meeting) => {
+        const patch = pick(op.patch, MEETING_FIELDS);
+        const keys = Object.keys(patch) as (keyof typeof patch)[];
+        if (keys.every((key) => same(patch[key], meetingField(meeting, key)))) return meeting;
+        return { ...meeting, ...patch };
+      });
+
+    case 'meeting/remove': {
+      const meetings = board.meetings ?? [];
+      if (!meetings.some((m) => m.id === op.meetingId)) return board;
+      return { ...board, meetings: meetings.filter((m) => m.id !== op.meetingId) };
+    }
+
+    case 'meeting/attend':
+      return updateMeeting(board, op.meetingId, (meeting) => {
+        const there = meeting.attendees.some((a) => a.id === op.person.id);
+        if (there === op.on) return meeting;
+        return {
+          ...meeting,
+          attendees: op.on
+            ? [...meeting.attendees, op.person]
+            : meeting.attendees.filter((a) => a.id !== op.person.id),
+        };
+      });
+
+    case 'topic/add':
+      return updateMeeting(board, op.meetingId, (meeting) =>
+        meeting.topics.some((t) => t.id === op.topic.id)
+          ? meeting
+          : { ...meeting, topics: insertAt(meeting.topics, op.index ?? meeting.topics.length, op.topic) },
+      );
+
+    case 'topic/update':
+      return updateTopic(board, op.meetingId, op.topicId, (topic) => {
+        const patch = pick(op.patch, TOPIC_FIELDS);
+        const keys = Object.keys(patch) as (keyof typeof patch)[];
+        if (keys.every((key) => same(patch[key], topic[key]))) return topic;
+        return { ...topic, ...patch };
+      });
+
+    case 'topic/move':
+      return updateMeeting(board, op.meetingId, (meeting) => {
+        const from = meeting.topics.findIndex((t) => t.id === op.topicId);
+        if (from < 0) return meeting;
+        const to = clampIndex(op.toIndex, meeting.topics.length - 1);
+        if (from === to) return meeting;
+        const topics = meeting.topics.slice();
+        const [moved] = topics.splice(from, 1);
+        topics.splice(to, 0, moved);
+        return { ...meeting, topics };
+      });
+
+    case 'topic/remove':
+      return updateMeeting(board, op.meetingId, (meeting) =>
+        meeting.topics.some((t) => t.id === op.topicId)
+          ? { ...meeting, topics: meeting.topics.filter((t) => t.id !== op.topicId) }
+          : meeting,
       );
 
     default:

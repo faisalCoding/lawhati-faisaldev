@@ -81,6 +81,35 @@ export interface BoardMember {
   at: number;
 }
 
+/** One item on a meeting's agenda, and what was said about it. */
+export interface MeetingTopic {
+  id: string;
+  title: string;
+  /** What was discussed. */
+  notes: string;
+}
+
+/**
+ * A meeting held about this board: its agenda, who was there, and (from the next step) what came
+ * out of it.
+ *
+ * Attendance keeps each person's name beside their id, the way a card's assignees do. The roster
+ * can change — someone leaves, someone renames themselves — and a record of who was in a room on a
+ * day must not change with it.
+ */
+export interface Meeting {
+  id: string;
+  title: string;
+  /** Local calendar date in YYYY-MM-DD form, like a card's due date. */
+  date: string;
+  /** Where it was held, or a link to join. */
+  place?: string;
+  /** Who was there, in the order they were added. */
+  attendees: Assignee[];
+  topics: MeetingTopic[];
+  createdAt: number;
+}
+
 export interface Board {
   id: string;
   title: string;
@@ -100,6 +129,8 @@ export interface Board {
   activity?: ActivityEntry[];
   /** Everyone this board has seen, oldest first. Older boards lack it. */
   members?: BoardMember[];
+  /** Meetings held about this board, newest first. Older boards lack it. */
+  meetings?: Meeting[];
 }
 
 /**
@@ -162,7 +193,18 @@ export type ActivityWhat =
   | { type: 'board/buttons' }
   | { type: 'powerUp'; key: PowerUpKey; on: boolean }
   | { type: 'label/rename'; name: string; color: string }
-  | { type: 'member/seen'; name: string; renamed: boolean };
+  | { type: 'member/seen'; name: string; renamed: boolean }
+  | { type: 'meeting/add'; meeting: string }
+  | { type: 'meeting/title'; meeting: string; from: string }
+  | { type: 'meeting/when'; meeting: string; date: string }
+  | { type: 'meeting/where'; meeting: string }
+  | { type: 'meeting/remove'; meeting: string; topics: number }
+  | { type: 'meeting/attend'; meeting: string; who: string; on: boolean }
+  | { type: 'topic/add'; meeting: string; topic: string }
+  | { type: 'topic/title'; meeting: string; topic: string; from: string }
+  | { type: 'topic/notes'; meeting: string; topic: string }
+  | { type: 'topic/move'; meeting: string; topic: string }
+  | { type: 'topic/remove'; meeting: string; topic: string };
 
 /**
  * One operation that undoes part of a change. `expect` holds the values the change left: undoing
@@ -225,7 +267,17 @@ export type OpInput =
       itemId: string;
       patch: Partial<Pick<ChecklistItem, 'text' | 'done' | 'assignee'>>;
     }
-  | { type: 'check/remove'; cardId: string; itemId: string };
+  | { type: 'check/remove'; cardId: string; itemId: string }
+  | { type: 'meeting/add'; meeting: Meeting }
+  | { type: 'meeting/update'; meetingId: string; patch: Partial<Pick<Meeting, 'title' | 'date' | 'place'>> }
+  | { type: 'meeting/remove'; meetingId: string }
+  /** Puts someone in the room, or takes them out. `person` carries the name to keep. */
+  | { type: 'meeting/attend'; meetingId: string; person: Assignee; on: boolean }
+  /** Added at the end of the agenda, or at `index` (undoing a deletion puts a topic back in place). */
+  | { type: 'topic/add'; meetingId: string; topic: MeetingTopic; index?: number }
+  | { type: 'topic/update'; meetingId: string; topicId: string; patch: Partial<Pick<MeetingTopic, 'title' | 'notes'>> }
+  | { type: 'topic/move'; meetingId: string; topicId: string; toIndex: number }
+  | { type: 'topic/remove'; meetingId: string; topicId: string };
 
 /** How an operation is recorded in the board's activity. */
 export interface OpMeta {

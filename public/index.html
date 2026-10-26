@@ -38,9 +38,15 @@
     <script>
     // Registered here rather than in the bundle so a browser that never loads
     // the app still has it, and so the scope is the app's own path.
-    if ('serviceWorker' in navigator) {
+    //
+    // The path is filled in by the build. Under `expo start --web` nothing fills it, so the
+    // placeholder is still here and registering would ask for a file at a literal «%BASE_URL%» —
+    // a 500, and a dev error overlay on top of every screen. There are no push notifications in
+    // dev anyway.
+    var swPath = '%BASE_URL%/sw.js';
+    if ('serviceWorker' in navigator && swPath.indexOf('%' + 'BASE_URL' + '%') === -1) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('%BASE_URL%/sw.js', { scope: '%BASE_URL%/' });
+        navigator.serviceWorker.register(swPath, { scope: '%BASE_URL%/' });
       });
     }
   </script>

@@ -1,5 +1,16 @@
 import { isCardDone } from './cards';
-import type { ActivityEntry, ActivityWhat, Board, Card, ChecklistItem, List, Op, OpInput, UndoStep } from './types';
+import type {
+  ActivityEntry,
+  ActivityWhat,
+  Board,
+  Card,
+  ChecklistItem,
+  List,
+  Meeting,
+  Op,
+  OpInput,
+  UndoStep,
+} from './types';
 
 // The board's activity: who changed what, and how to undo it. The reducer notes every change as it
 // applies it, on the sync server and on each device alike, so the whole team sees the same history.
@@ -20,13 +31,21 @@ export const BOARD_FIELDS = ['title', 'color', 'icon', 'buttons'] as const;
 export const LIST_FIELDS = ['title', 'wipLimit'] as const;
 export const CARD_FIELDS = ['title', 'description', 'due', 'dueDone', 'cover', 'link', 'assignees'] as const;
 export const CHECK_FIELDS = ['text', 'done', 'assignee'] as const;
+export const MEETING_FIELDS = ['title', 'date', 'place'] as const;
+export const TOPIC_FIELDS = ['title', 'notes'] as const;
 
 type BoardField = (typeof BOARD_FIELDS)[number];
 type CardField = (typeof CARD_FIELDS)[number];
 type CheckField = (typeof CHECK_FIELDS)[number];
+type MeetingField = (typeof MEETING_FIELDS)[number];
 
 /** Whether two values are the same, a missing value counting as null. */
 export const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/** A meeting's field as every version reads it: `place` is optional and counts as empty. */
+export function meetingField(meeting: Meeting, key: MeetingField): unknown {
+  return key === 'place' ? (meeting.place ?? '') : meeting[key];
+}
 
 /** A card's field as every version reads it: fields older cards lack have their default. */
 export function cardField(card: Card, key: CardField): unknown {
@@ -88,6 +107,48 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
     case 'label/rename': {
       const label = after.labels.find((l) => l.id === op.labelId);
       return label ? { type: 'label/rename', name: label.name, color: label.color } : null;
+    }
+    case 'meeting/add':
+      return { type: 'meeting/add', meeting: op.meeting.title };
+    case 'meeting/update': {
+      const was = (before.meetings ?? []).find((m) => m.id === op.meetingId);
+      const now = (after.meetings ?? []).find((m) => m.id === op.meetingId);
+      if (!was || !now) return null;
+      if (was.title !== now.title) return { type: 'meeting/title', meeting: now.title, from: was.title };
+      if (was.date !== now.date) return { type: 'meeting/when', meeting: now.title, date: now.date };
+      if ((was.place ?? '') !== (now.place ?? '')) return { type: 'meeting/where', meeting: now.title };
+      return null;
+    }
+    case 'meeting/remove': {
+      const meeting = (before.meetings ?? []).find((m) => m.id === op.meetingId);
+      return meeting ? { type: 'meeting/remove', meeting: meeting.title, topics: meeting.topics.length } : null;
+    }
+    case 'meeting/attend': {
+      const meeting = (after.meetings ?? []).find((m) => m.id === op.meetingId);
+      return meeting ? { type: 'meeting/attend', meeting: meeting.title, who: op.person.name, on: op.on } : null;
+    }
+    case 'topic/add': {
+      const meeting = (after.meetings ?? []).find((m) => m.id === op.meetingId);
+      return meeting ? { type: 'topic/add', meeting: meeting.title, topic: op.topic.title } : null;
+    }
+    case 'topic/update': {
+      const meeting = (after.meetings ?? []).find((m) => m.id === op.meetingId);
+      const was = (before.meetings ?? []).find((m) => m.id === op.meetingId)?.topics.find((t) => t.id === op.topicId);
+      const now = meeting?.topics.find((t) => t.id === op.topicId);
+      if (!meeting || !was || !now) return null;
+      if (was.title !== now.title) return { type: 'topic/title', meeting: meeting.title, topic: now.title, from: was.title };
+      if (was.notes !== now.notes) return { type: 'topic/notes', meeting: meeting.title, topic: now.title };
+      return null;
+    }
+    case 'topic/move': {
+      const meeting = (after.meetings ?? []).find((m) => m.id === op.meetingId);
+      const topic = meeting?.topics.find((t) => t.id === op.topicId);
+      return meeting && topic ? { type: 'topic/move', meeting: meeting.title, topic: topic.title } : null;
+    }
+    case 'topic/remove': {
+      const meeting = (before.meetings ?? []).find((m) => m.id === op.meetingId);
+      const topic = meeting?.topics.find((t) => t.id === op.topicId);
+      return meeting && topic ? { type: 'topic/remove', meeting: meeting.title, topic: topic.title } : null;
     }
     case 'member/seen': {
       const was = (before.members ?? []).some((m) => m.id === op.member.id);

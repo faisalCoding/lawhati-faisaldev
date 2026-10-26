@@ -1,7 +1,7 @@
 import { revertDepth } from '../shared/activity';
 import type { ActivityEntry, ActivityWhat, PowerUpKey } from '../shared/types';
 import { formatShortDate, toISODate } from './dates';
-import { pluralCards, pluralTasks } from './text';
+import { pluralCards, pluralTasks, pluralTopics } from './text';
 
 // The board's activity in words. Each line names the change as a verbal noun («إنجاز البطاقة…»)
 // after the person's name, so it reads the same whoever made it.
@@ -99,6 +99,28 @@ export function describeWhat(what: ActivityWhat, n = 1, tasks = 1): string {
       return `${what.on ? 'تفعيل' : 'إيقاف'} إضافة ${q(POWER_UP_NAMES[what.key] ?? what.key)}`;
     case 'label/rename':
       return what.name ? `تغيير اسم تسمية إلى ${q(what.name)}` : 'إزالة اسم تسمية';
+    case 'meeting/add':
+      return `إضافة اجتماع ${q(what.meeting)}`;
+    case 'meeting/title':
+      return `تغيير عنوان اجتماع ${q(what.from)} إلى ${q(what.meeting)}`;
+    case 'meeting/when':
+      return `تغيير موعد اجتماع ${q(what.meeting)} إلى ${formatShortDate(what.date)}`;
+    case 'meeting/where':
+      return `تغيير مكان اجتماع ${q(what.meeting)}`;
+    case 'meeting/remove':
+      return `حذف اجتماع ${q(what.meeting)}${what.topics ? ` و${pluralTopics(what.topics, true)}` : ''}`;
+    case 'meeting/attend':
+      return `${what.on ? 'إضافة' : 'إزالة'} ${what.who} ${what.on ? 'إلى' : 'من'} حضور ${q(what.meeting)}`;
+    case 'topic/add':
+      return `إضافة محور ${q(what.topic)} إلى ${q(what.meeting)}`;
+    case 'topic/title':
+      return `تغيير محور ${q(what.from)} إلى ${q(what.topic)} في ${q(what.meeting)}`;
+    case 'topic/notes':
+      return `تدوين نقاش محور ${q(what.topic)} في ${q(what.meeting)}`;
+    case 'topic/move':
+      return `ترتيب محور ${q(what.topic)} في ${q(what.meeting)}`;
+    case 'topic/remove':
+      return `حذف محور ${q(what.topic)} من ${q(what.meeting)}`;
     case 'member/seen':
       // The line reads after the person's name, and here they are the person: «فيصل: انضمام إلى
       // اللوحة», not «… انضمام فيصل».
