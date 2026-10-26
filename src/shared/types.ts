@@ -81,12 +81,27 @@ export interface BoardMember {
   at: number;
 }
 
+/**
+ * A subject this board's meetings keep returning to — «الرحلة», «سير الأسبوع الماضي».
+ *
+ * Six months of real minutes showed nineteen agenda items collapsing to six subjects and three
+ * one-offs: an agenda is a standing list with the occasional addition, not free text retyped every
+ * week. Keeping the subject lets a meeting start from it, and lets everything ever decided about
+ * one subject be gathered across meetings — which is the thing a chat group cannot do.
+ */
+export interface AgendaSubject {
+  id: string;
+  title: string;
+}
+
 /** One item on a meeting's agenda, and what was said about it. */
 export interface MeetingTopic {
   id: string;
   title: string;
   /** What was discussed. */
   notes: string;
+  /** The standing subject this is an instance of, when it came from one. */
+  subjectId?: string | null;
 }
 
 /**
@@ -95,20 +110,29 @@ export interface MeetingTopic {
  *
  * - `task`: someone is to do something by a date. It can be turned into a card on the board, which
  *   is what puts it into the reminders, «assigned to me», and the lists people actually work from.
+ * - `assignment`: someone holds something from now on — a committee, the printing, the trip's
+ *   money. Not a task: it has no deadline and is never finished. A fifth of the real decisions
+ *   read this way, and one meeting was five of them and no tasks at all.
  * - `note`: what was concluded, or a summary of the discussion. Nobody owes anything.
  * - `announcement`: a general direction, told to everyone rather than owed by anyone.
- * - `policy`: an addition, change or removal to the board's standing policies. Recorded from the
- *   step that introduces those.
+ * - `policy`: an addition, change or removal to the board's standing policies.
  */
-export type OutcomeKind = 'task' | 'note' | 'announcement' | 'policy';
+export type OutcomeKind = 'task' | 'assignment' | 'note' | 'announcement' | 'policy';
 
 export interface Outcome {
   id: string;
   kind: OutcomeKind;
   text: string;
-  /** `task`: who is to do it, with their name kept, as a card's assignee is. */
+  /** The topic it came out of. Null for a decision that belongs to the meeting as a whole. */
+  topicId?: string | null;
+  /** `task` and `assignment`: who holds it, with their name kept, as a card's assignee is. */
   assignee?: Assignee | null;
-  /** `task`: by when, in YYYY-MM-DD form. */
+  /**
+   * When it falls due, starts, or takes effect, in YYYY-MM-DD form.
+   *
+   * On any kind, not only a task: «the contest starts next Sunday» and «the trip moves to next
+   * week» are dated decisions nobody owes, and forcing them into a task invented an owner.
+   */
   due?: string | null;
   /** `task`: the card made from it, once one has been. Null while it is only written down. */
   cardId?: string | null;
@@ -157,6 +181,8 @@ export interface Board {
   members?: BoardMember[];
   /** Meetings held about this board, newest first. Older boards lack it. */
   meetings?: Meeting[];
+  /** The subjects its meetings keep returning to, in the order they are gone through. */
+  agenda?: AgendaSubject[];
 }
 
 /**
@@ -237,7 +263,12 @@ export type ActivityWhat =
   | { type: 'outcome/assign'; meeting: string; text: string; to: string | null }
   | { type: 'outcome/due'; meeting: string; text: string; due: string | null }
   | { type: 'outcome/card'; meeting: string; text: string }
-  | { type: 'outcome/remove'; meeting: string; text: string };
+  | { type: 'outcome/remove'; meeting: string; text: string }
+  | { type: 'outcome/topic'; meeting: string; text: string; topic: string | null }
+  | { type: 'agenda/add'; subject: string }
+  | { type: 'agenda/title'; subject: string; from: string }
+  | { type: 'agenda/move'; subject: string }
+  | { type: 'agenda/remove'; subject: string };
 
 /**
  * One operation that undoes part of a change. `expect` holds the values the change left: undoing
@@ -317,9 +348,13 @@ export type OpInput =
       type: 'outcome/update';
       meetingId: string;
       outcomeId: string;
-      patch: Partial<Pick<Outcome, 'kind' | 'text' | 'assignee' | 'due' | 'cardId'>>;
+      patch: Partial<Pick<Outcome, 'kind' | 'text' | 'topicId' | 'assignee' | 'due' | 'cardId'>>;
     }
-  | { type: 'outcome/remove'; meetingId: string; outcomeId: string };
+  | { type: 'outcome/remove'; meetingId: string; outcomeId: string }
+  | { type: 'agenda/add'; subject: AgendaSubject; index?: number }
+  | { type: 'agenda/update'; subjectId: string; patch: Partial<Pick<AgendaSubject, 'title'>> }
+  | { type: 'agenda/move'; subjectId: string; toIndex: number }
+  | { type: 'agenda/remove'; subjectId: string };
 
 /** How an operation is recorded in the board's activity. */
 export interface OpMeta {

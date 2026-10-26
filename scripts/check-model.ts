@@ -5,7 +5,7 @@
 
 import { stillApplies, undoOf } from '../src/shared/activity';
 import { applyOp } from '../src/shared/reducer';
-import type { Board, Meeting, MeetingTopic, Outcome, Op } from '../src/shared/types';
+import type { AgendaSubject, Board, Meeting, MeetingTopic, Outcome, Op } from '../src/shared/types';
 
 const board = (): Board => ({
   id: 'b', title: 'لوحة', color: '#000', icon: 'grid',
@@ -236,6 +236,67 @@ for (const st of stepsBack) {
   if (u) restored = applyOp(restored, { ...u, id: `r${++seq}`, at: 9500 + seq, by: null } as Op);
 }
 ok('المحور المحذوف يعود إلى موضعه نفسه', topicsOf(restored) === 't1t2t3');
+
+
+// ── المحاور الثابتة والروابط ────────────────────────────────────────────────
+const subject = (id: string, title = `موضوع ${id}`): AgendaSubject => ({ id, title });
+const agendaOf = (b: Board) => (b.agenda ?? []).map((a) => a.id).join('');
+
+const a1 = applyOp(board(), op({ type: 'agenda/add', subject: subject('s1', 'الرحلة') }));
+const a2 = applyOp(a1, op({ type: 'agenda/add', subject: subject('s2', 'سير الأسبوع') }));
+ok('تُضاف المحاور الثابتة بترتيبها', agendaOf(a2) === 's1s2');
+ok('إعادة الإضافة لا تكرّر', applyOp(a2, op({ type: 'agenda/add', subject: subject('s1', 'الرحلة') })) === a2);
+ok('ترتيب المحاور', agendaOf(applyOp(a2, op({ type: 'agenda/move', subjectId: 's2', toIndex: 0 }))) === 's2s1');
+ok('تعديل العنوان', (applyOp(a2, op({ type: 'agenda/update', subjectId: 's1', patch: { title: 'الرحلات' } })).agenda ?? [])[0].title === 'الرحلات');
+ok('نفس العنوان لا يغيّر شيئًا', applyOp(a2, op({ type: 'agenda/update', subjectId: 's1', patch: { title: 'الرحلة' } })) === a2);
+
+// اجتماع يمرّ بمحور ثابت
+const withSubjectTopic = applyOp(
+  applyOp(a2, op({ type: 'meeting/add', meeting: meeting('a', '2026-01-10') })),
+  op({ type: 'topic/add', meetingId: 'a', topic: { id: 't1', title: 'الرحلة', notes: '', subjectId: 's1' } }),
+);
+const topicIn = (b: Board) => b.meetings?.find((m) => m.id === 'a')?.topics[0];
+ok('المحور يحمل خيطه إلى الموضوع الثابت', topicIn(withSubjectTopic)?.subjectId === 's1');
+
+// حذف الموضوع الثابت: المحضر يبقى، والخيط يُقطع
+const cutSubject = applyOp(withSubjectTopic, op({ type: 'agenda/remove', subjectId: 's1' }));
+ok('حذف الموضوع الثابت يُبقي محور الاجتماع', topicIn(cutSubject)?.title === 'الرحلة');
+ok('ويقطع الخيط بدل أن يتركه معلّقًا', topicIn(cutSubject)?.subjectId === null);
+ok('ويزيله من القائمة الثابتة', agendaOf(cutSubject) === 's2');
+
+// توصية تحت محورها
+const withOutcomeUnderTopic = applyOp(
+  withSubjectTopic,
+  op({ type: 'outcome/add', meetingId: 'a', outcome: { id: 'o1', kind: 'policy', text: 'ضابط', topicId: 't1' } }),
+);
+const outOf = (b: Board) => b.meetings?.find((m) => m.id === 'a')?.outcomes?.[0];
+ok('التوصية تنتمي إلى محورها', outOf(withOutcomeUnderTopic)?.topicId === 't1');
+
+// حذف المحور: التوصية لا تضيع معه
+const cutTopic = applyOp(withOutcomeUnderTopic, op({ type: 'topic/remove', meetingId: 'a', topicId: 't1' }));
+ok('حذف المحور لا يحذف ما خرج منه', (cutTopic.meetings?.find((m) => m.id === 'a')?.outcomes ?? []).length === 1);
+ok('بل تصير التوصية عامة لا معلّقة', outOf(cutTopic)?.topicId === null);
+
+// التاريخ على كل الأنواع لا على المهمة وحدها
+const dated = applyOp(
+  applyOp(withSubjectTopic, op({ type: 'outcome/add', meetingId: 'a', outcome: { id: 'o9', kind: 'announcement', text: 'تبدأ المسابقة' } })),
+  op({ type: 'outcome/update', meetingId: 'a', outcomeId: 'o9', patch: { due: '2026-02-08' } }),
+);
+ok('يُقبل التاريخ على الإعلان لا على المهمة وحدها', outOf(dated)?.due === '2026-02-08');
+
+// المسؤولية نوع قائم بذاته
+const resp = applyOp(withSubjectTopic, op({
+  type: 'outcome/add', meetingId: 'a',
+  outcome: { id: 'r1', kind: 'assignment', text: 'مسؤول الطباعة', assignee: { id: '7', name: 'نصر' } },
+}));
+ok('المسؤولية تُحفظ بنوعها وصاحبها', outOf(resp)?.kind === 'assignment' && outOf(resp)?.assignee?.name === 'نصر');
+
+// التراجع عن الجديد
+roundTrip(a2, op({ type: 'agenda/add', subject: subject('s3') }), 'إضافة محور ثابت');
+roundTrip(a2, op({ type: 'agenda/update', subjectId: 's1', patch: { title: 'الرحلات' } }), 'تعديل محور ثابت');
+roundTrip(a2, op({ type: 'agenda/move', subjectId: 's1', toIndex: 1 }), 'نقل محور ثابت');
+roundTrip(a2, op({ type: 'agenda/remove', subjectId: 's1' }), 'حذف محور ثابت');
+roundTrip(withOutcomeUnderTopic, op({ type: 'outcome/update', meetingId: 'a', outcomeId: 'o1', patch: { topicId: null } }), 'نقل توصية إلى العام');
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);

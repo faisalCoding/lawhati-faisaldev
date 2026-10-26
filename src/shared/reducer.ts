@@ -289,11 +289,17 @@ function reduce(board: Board, op: Op): Board {
       });
 
     case 'topic/remove':
-      return updateMeeting(board, op.meetingId, (meeting) =>
-        meeting.topics.some((t) => t.id === op.topicId)
-          ? { ...meeting, topics: meeting.topics.filter((t) => t.id !== op.topicId) }
-          : meeting,
-      );
+      return updateMeeting(board, op.meetingId, (meeting) => {
+        if (!meeting.topics.some((t) => t.id === op.topicId)) return meeting;
+        // Decisions that came out of it are not lost with it: they fall back to the meeting as a
+        // whole. A dangling topicId would hide them from every grouping that reads it.
+        const outcomes = meeting.outcomes?.map((o) => (o.topicId === op.topicId ? { ...o, topicId: null } : o));
+        return {
+          ...meeting,
+          topics: meeting.topics.filter((t) => t.id !== op.topicId),
+          ...(outcomes ? { outcomes } : {}),
+        };
+      });
 
     case 'outcome/add':
       return updateMeeting(board, op.meetingId, (meeting) => {
@@ -314,6 +320,49 @@ function reduce(board: Board, op: Op): Board {
         next[index] = { ...next[index], ...patch };
         return { ...meeting, outcomes: next };
       });
+
+    case 'agenda/add': {
+      const agenda = board.agenda ?? [];
+      if (agenda.some((a) => a.id === op.subject.id)) return board;
+      return { ...board, agenda: insertAt(agenda, op.index ?? agenda.length, op.subject) };
+    }
+
+    case 'agenda/update': {
+      const agenda = board.agenda ?? [];
+      const index = agenda.findIndex((a) => a.id === op.subjectId);
+      if (index < 0 || op.patch.title === undefined || agenda[index].title === op.patch.title) return board;
+      const next = agenda.slice();
+      next[index] = { ...next[index], title: op.patch.title };
+      return { ...board, agenda: next };
+    }
+
+    case 'agenda/move': {
+      const agenda = board.agenda ?? [];
+      const from = agenda.findIndex((a) => a.id === op.subjectId);
+      if (from < 0) return board;
+      const to = clampIndex(op.toIndex, agenda.length - 1);
+      if (from === to) return board;
+      const next = agenda.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return { ...board, agenda: next };
+    }
+
+    case 'agenda/remove': {
+      const agenda = board.agenda ?? [];
+      if (!agenda.some((a) => a.id === op.subjectId)) return board;
+      // Meetings that went through it keep their topic and its minutes, under the title they had.
+      // Only the thread back to the standing subject is cut, because it no longer leads anywhere.
+      const meetings = board.meetings?.map((m) => {
+        const topics = m.topics.map((t) => (t.subjectId === op.subjectId ? { ...t, subjectId: null } : t));
+        return topics.some((t, i) => t !== m.topics[i]) ? { ...m, topics } : m;
+      });
+      return {
+        ...board,
+        agenda: agenda.filter((a) => a.id !== op.subjectId),
+        ...(meetings ? { meetings } : {}),
+      };
+    }
 
     case 'outcome/remove':
       return updateMeeting(board, op.meetingId, (meeting) => {

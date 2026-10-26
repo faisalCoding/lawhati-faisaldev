@@ -9,6 +9,7 @@ import { pluralCards, pluralTasks, pluralTopics } from './text';
 /** What each kind of outcome is called, in the activity and on screen. */
 export const OUTCOME_NAMES: Record<OutcomeKind, string> = {
   task: 'مهمة',
+  assignment: 'مسؤولية',
   note: 'ملاحظة',
   announcement: 'إعلان',
   policy: 'تعديل سياسة',
@@ -147,6 +148,16 @@ export function describeWhat(what: ActivityWhat, n = 1, tasks = 1): string {
       return `تحويل ${q(what.text)} إلى بطاقة على اللوحة`;
     case 'outcome/remove':
       return `حذف توصية ${q(what.text)} من ${q(what.meeting)}`;
+    case 'outcome/topic':
+      return what.topic ? `نقل ${q(what.text)} إلى محور ${q(what.topic)}` : `جعل ${q(what.text)} توصية عامة`;
+    case 'agenda/add':
+      return `إضافة محور ثابت ${q(what.subject)}`;
+    case 'agenda/title':
+      return `تغيير المحور الثابت ${q(what.from)} إلى ${q(what.subject)}`;
+    case 'agenda/move':
+      return `ترتيب المحور الثابت ${q(what.subject)}`;
+    case 'agenda/remove':
+      return `حذف المحور الثابت ${q(what.subject)}`;
     case 'member/seen':
       // The line reads after the person's name, and here they are the person: «فيصل: انضمام إلى
       // اللوحة», not «… انضمام فيصل».

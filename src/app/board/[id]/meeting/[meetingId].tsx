@@ -241,10 +241,14 @@ function TopicRow({
 
 /** The kinds a recommendation can take, in the order they are offered. */
 const KINDS: { kind: OutcomeKind; icon: IconName; hint: string }[] = [
-  { kind: 'task', icon: 'checks', hint: 'يفعلها أحدهم بموعد' },
+  { kind: 'task', icon: 'checks', hint: 'يفعلها أحدهم وتنتهي' },
+  { kind: 'assignment', icon: 'user', hint: 'يحملها أحدهم من الآن فصاعدًا — لا تنتهي' },
   { kind: 'note', icon: 'description', hint: 'خلاصة أو ملخّص نقاش' },
   { kind: 'announcement', icon: 'info', hint: 'توجيه عامّ للجميع' },
 ];
+
+/** The kinds that belong to a person: a task is owed, a responsibility is held. */
+const HAS_OWNER: OutcomeKind[] = ['task', 'assignment'];
 
 /**
  * What the meeting decided. A task carries who does it and by when, and can become a card on the
@@ -253,6 +257,7 @@ const KINDS: { kind: OutcomeKind; icon: IconName; hint: string }[] = [
 function OutcomesSection({ board, meeting }: { board: Board; meeting: Meeting }) {
   const [draft, setDraft] = useState('');
   const [kind, setKind] = useState<OutcomeKind>('task');
+  const [under, setUnder] = useState<string | null>(null);
   const outcomes = meeting.outcomes ?? [];
 
   const add = () => {
@@ -261,18 +266,40 @@ function OutcomesSection({ board, meeting }: { board: Board; meeting: Meeting })
     dispatch(board.id, {
       type: 'outcome/add',
       meetingId: meeting.id,
-      outcome: { id: uid(), kind, text, assignee: null, due: null, cardId: null },
+      outcome: {
+        id: uid(),
+        kind,
+        text,
+        // Only if that topic is still there: it may have been deleted while this was being typed.
+        topicId: meeting.topics.some((t) => t.id === under) ? under : null,
+        assignee: null,
+        due: null,
+        cardId: null,
+      },
     });
     setDraft('');
   };
 
+  // Grouped by the topic each came out of, which is how real minutes are written: the third
+  // meeting's notes already grouped their decisions under «ضوابط الرحلات», «تنظيم مهام المعلمين»
+  // and the rest. What belongs to no topic sits last, under «عامة».
+  const groups = [
+    ...meeting.topics.map((t) => ({ id: t.id, title: t.title, items: outcomes.filter((o) => o.topicId === t.id) })),
+    { id: null, title: 'عامة', items: outcomes.filter((o) => !o.topicId || !meeting.topics.some((t) => t.id === o.topicId)) },
+  ].filter((g) => g.items.length > 0);
+
   return (
     <Section title="التوصيات" icon="target" right={<Txt style={styles.count}>{outcomes.length}</Txt>}>
-      <View style={styles.topics}>
-        {outcomes.map((outcome) => (
-          <OutcomeRow key={outcome.id} board={board} meeting={meeting} outcome={outcome} />
-        ))}
-      </View>
+      {groups.map((group) => (
+        <View key={group.id ?? 'general'} style={styles.group}>
+          <Txt style={styles.groupTitle}>{group.title}</Txt>
+          <View style={styles.topics}>
+            {group.items.map((outcome) => (
+              <OutcomeRow key={outcome.id} board={board} meeting={meeting} outcome={outcome} />
+            ))}
+          </View>
+        </View>
+      ))}
 
       <View style={styles.wrapRow}>
         {KINDS.map((k) => (
@@ -286,6 +313,16 @@ function OutcomesSection({ board, meeting }: { board: Board; meeting: Meeting })
         ))}
       </View>
       <Txt style={styles.kindHint}>{KINDS.find((k) => k.kind === kind)?.hint}</Txt>
+
+      {meeting.topics.length ? (
+        <View style={styles.wrapRow}>
+          <Chip label="عامة" selected={under === null} onPress={() => setUnder(null)} />
+          {meeting.topics.map((t) => (
+            <Chip key={t.id} label={t.title} selected={under === t.id} onPress={() => setUnder(t.id)} />
+          ))}
+        </View>
+      ) : null}
+
       <View style={styles.addRow}>
         {/* Multiline, because a decision is often a sentence or two — so Return makes a new line
             and cannot submit. The button beside it is the way in, and no misleading `returnKeyType`
@@ -306,6 +343,7 @@ function OutcomesSection({ board, meeting }: { board: Board; meeting: Meeting })
 function OutcomeRow({ board, meeting, outcome }: { board: Board; meeting: Meeting; outcome: Outcome }) {
   const [picking, setPicking] = useState(false);
   const isTask = outcome.kind === 'task';
+  const hasOwner = HAS_OWNER.includes(outcome.kind);
   const card = outcome.cardId ? board.cards[outcome.cardId] : undefined;
   const update = (patch: Parameters<typeof dispatchOutcome>[3]) =>
     dispatchOutcome(board.id, meeting.id, outcome.id, patch);
@@ -332,29 +370,33 @@ function OutcomeRow({ board, meeting, outcome }: { board: Board; meeting: Meetin
         />
       </View>
 
+      <View style={styles.wrapRow}>
+        {hasOwner ? (
+          <Chip
+            label={outcome.assignee ? outcome.assignee.name : 'بلا مسؤول'}
+            icon="user"
+            selected={!!outcome.assignee}
+            onPress={() => setPicking(true)}
+          />
+        ) : null}
+        {/* On every kind, not tasks alone: «the contest starts next Sunday» is a dated decision
+            nobody owes, and restricting the date to tasks invented an owner for it. */}
+        <Chip
+          label={outcome.due ? formatLongDate(outcome.due) : 'بلا تاريخ'}
+          icon="calendar"
+          selected={!!outcome.due}
+          onPress={() => update({ due: outcome.due ? null : todayISO() })}
+        />
+        {outcome.due ? (
+          <>
+            <IconButton name="chevron-right" label="اليوم السابق" onPress={() => update({ due: addDays(outcome.due!, -1) })} />
+            <IconButton name="chevron-left" label="اليوم التالي" onPress={() => update({ due: addDays(outcome.due!, 1) })} />
+          </>
+        ) : null}
+      </View>
+
       {isTask ? (
         <>
-          <View style={styles.wrapRow}>
-            <Chip
-              label={outcome.assignee ? outcome.assignee.name : 'بلا مسؤول'}
-              icon="user"
-              selected={!!outcome.assignee}
-              onPress={() => setPicking(true)}
-            />
-            <Chip
-              label={outcome.due ? formatLongDate(outcome.due) : 'بلا موعد'}
-              icon="calendar"
-              selected={!!outcome.due}
-              onPress={() => update({ due: outcome.due ? null : todayISO() })}
-            />
-            {outcome.due ? (
-              <>
-                <IconButton name="chevron-right" label="اليوم السابق" onPress={() => update({ due: addDays(outcome.due!, -1) })} />
-                <IconButton name="chevron-left" label="اليوم التالي" onPress={() => update({ due: addDays(outcome.due!, 1) })} />
-              </>
-            ) : null}
-          </View>
-
           {card ? (
             <Pressable
               onPress={() => router.push(`/board/${board.id}/card/${card.id}`)}
@@ -406,7 +448,7 @@ function dispatchOutcome(
   boardId: string,
   meetingId: string,
   outcomeId: string,
-  patch: Partial<Pick<Outcome, 'kind' | 'text' | 'assignee' | 'due' | 'cardId'>>,
+  patch: Partial<Pick<Outcome, 'kind' | 'text' | 'topicId' | 'assignee' | 'due' | 'cardId'>>,
 ) {
   dispatch(boardId, { type: 'outcome/update', meetingId, outcomeId, patch });
 }
@@ -446,6 +488,8 @@ const styles = StyleSheet.create({
   personNameOn: { color: colors.surface, fontWeight: '700' },
   pressed: { opacity: 0.7 },
   topics: { gap: 12 },
+  group: { gap: 8, marginBottom: 14 },
+  groupTitle: { fontSize: 12.5, fontWeight: '700', color: colors.textSubtle },
   topic: { gap: 6, padding: 12, borderRadius: 12, backgroundColor: colors.surface },
   topicHead: { flexDirection: 'row-reverse', alignItems: 'flex-start', gap: 4 },
   topicNumber: { width: 22, paddingTop: 9, fontSize: 13, fontWeight: '700', color: colors.textSubtle },

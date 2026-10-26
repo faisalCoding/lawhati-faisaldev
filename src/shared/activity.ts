@@ -34,7 +34,7 @@ export const CARD_FIELDS = ['title', 'description', 'due', 'dueDone', 'cover', '
 export const CHECK_FIELDS = ['text', 'done', 'assignee'] as const;
 export const MEETING_FIELDS = ['title', 'date', 'place'] as const;
 export const TOPIC_FIELDS = ['title', 'notes'] as const;
-export const OUTCOME_FIELDS = ['kind', 'text', 'assignee', 'due', 'cardId'] as const;
+export const OUTCOME_FIELDS = ['kind', 'text', 'topicId', 'assignee', 'due', 'cardId'] as const;
 
 type BoardField = (typeof BOARD_FIELDS)[number];
 type CardField = (typeof CARD_FIELDS)[number];
@@ -53,6 +53,8 @@ export function meetingField(meeting: Meeting, key: MeetingField): unknown {
 /** An outcome's field as every version reads it: the task-only fields count as empty otherwise. */
 export function outcomeField(outcome: Outcome, key: OutcomeField): unknown {
   switch (key) {
+    case 'topicId':
+      return outcome.topicId ?? null;
     case 'assignee':
       return outcome.assignee ?? null;
     case 'due':
@@ -186,6 +188,10 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
         return { type: 'outcome/card', meeting: meeting.title, text: now.text };
       }
       if (was.kind !== now.kind) return { type: 'outcome/kind', meeting: meeting.title, text: now.text, kind: now.kind };
+      if ((was.topicId ?? null) !== (now.topicId ?? null)) {
+        const topic = meeting.topics.find((t) => t.id === now.topicId);
+        return { type: 'outcome/topic', meeting: meeting.title, text: now.text, topic: topic?.title ?? null };
+      }
       if (was.text !== now.text) return { type: 'outcome/text', meeting: meeting.title, text: now.text };
       if ((was.assignee?.id ?? null) !== (now.assignee?.id ?? null)) {
         return { type: 'outcome/assign', meeting: meeting.title, text: now.text, to: now.assignee?.name ?? null };
@@ -199,6 +205,23 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
       const meeting = (before.meetings ?? []).find((m) => m.id === op.meetingId);
       const outcome = meeting?.outcomes?.find((o) => o.id === op.outcomeId);
       return meeting && outcome ? { type: 'outcome/remove', meeting: meeting.title, text: outcome.text } : null;
+    }
+    case 'agenda/add':
+      return { type: 'agenda/add', subject: op.subject.title };
+    case 'agenda/update': {
+      const was = (before.agenda ?? []).find((a) => a.id === op.subjectId);
+      const now = (after.agenda ?? []).find((a) => a.id === op.subjectId);
+      return was && now && was.title !== now.title
+        ? { type: 'agenda/title', subject: now.title, from: was.title }
+        : null;
+    }
+    case 'agenda/move': {
+      const subject = (after.agenda ?? []).find((a) => a.id === op.subjectId);
+      return subject ? { type: 'agenda/move', subject: subject.title } : null;
+    }
+    case 'agenda/remove': {
+      const subject = (before.agenda ?? []).find((a) => a.id === op.subjectId);
+      return subject ? { type: 'agenda/remove', subject: subject.title } : null;
     }
     case 'member/seen': {
       const was = (before.members ?? []).some((m) => m.id === op.member.id);
@@ -389,6 +412,26 @@ export function undoOf(before: Board, after: Board, op: Op): UndoStep[] {
       return index >= 0
         ? [{ op: { type: 'outcome/add', meetingId: op.meetingId, outcome: outcomes[index], index } }]
         : [];
+    }
+
+    case 'agenda/add':
+      return [{ op: { type: 'agenda/remove', subjectId: op.subject.id } }];
+    case 'agenda/update': {
+      const was = (before.agenda ?? []).find((a) => a.id === op.subjectId);
+      return was && op.patch.title !== undefined && was.title !== op.patch.title
+        ? [{ op: { type: 'agenda/update', subjectId: op.subjectId, patch: { title: was.title } }, expect: { title: op.patch.title } }]
+        : [];
+    }
+    case 'agenda/move': {
+      const from = (before.agenda ?? []).findIndex((a) => a.id === op.subjectId);
+      return from < 0 ? [] : [{ op: { type: 'agenda/move', subjectId: op.subjectId, toIndex: from } }];
+    }
+    case 'agenda/remove': {
+      const agenda = before.agenda ?? [];
+      const index = agenda.findIndex((a) => a.id === op.subjectId);
+      // Only the subject comes back. The threads from past topics to it were cut and are not
+      // restored: an undo that reached into every meeting would be a bigger act than the delete.
+      return index >= 0 ? [{ op: { type: 'agenda/add', subject: agenda[index], index } }] : [];
     }
 
     case 'board/update': {
@@ -699,6 +742,16 @@ export function stillApplies(board: Board, step: UndoStep): OpInput | null {
       const outcome = (meetingIn(board, op.meetingId)?.outcomes ?? []).find((o) => o.id === op.outcomeId);
       const patch = outcome ? kept(op.patch, (k) => outcomeField(outcome, k as OutcomeField)) : null;
       return patch ? ({ ...op, patch } as OpInput) : null;
+    }
+
+    case 'agenda/add':
+      return (board.agenda ?? []).some((a) => a.id === op.subject.id) ? null : op;
+    case 'agenda/move':
+    case 'agenda/remove':
+      return (board.agenda ?? []).some((a) => a.id === op.subjectId) ? op : null;
+    case 'agenda/update': {
+      const subject = (board.agenda ?? []).find((a) => a.id === op.subjectId);
+      return subject && (!expect || same(subject.title, expect.title)) ? op : null;
     }
 
     default:

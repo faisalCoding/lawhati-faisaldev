@@ -3,17 +3,18 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Icon } from '../../../components/ui/Buttons';
+import { Button, Icon, IconButton } from '../../../components/ui/Buttons';
 import { AvoidKeyboard } from '../../../components/ui/Keyboard';
-import { ModalHeader } from '../../../components/ui/Layout';
+import { EditableText } from '../../../components/ui/EditableText';
+import { ModalHeader, Section } from '../../../components/ui/Layout';
 import { Input, Txt } from '../../../components/ui/Txt';
 import { formatLongDate, todayISO } from '../../../lib/dates';
 import { uid } from '../../../lib/ids';
 import { goBack } from '../../../lib/nav';
 import { pluralTopics } from '../../../lib/text';
 import { colors } from '../../../lib/theme';
-import type { Meeting } from '../../../shared/types';
-import { dispatch } from '../../../store/actions';
+import type { AgendaSubject, Meeting } from '../../../shared/types';
+import { dispatch, startMeeting } from '../../../store/actions';
 import { useBoard } from '../../../store/store';
 
 /** The board's meetings, newest first, and a field to open a new one. */
@@ -32,23 +33,16 @@ export default function MeetingsScreen() {
   }
 
   const meetings = board.meetings ?? [];
+  const agenda = board.agenda ?? [];
 
   const add = () => {
     const name = title.trim();
     if (!name) return;
-    const meeting: Meeting = {
-      id: uid(),
-      title: name,
-      // Today, because minutes are written on the day far more often than any other. The date is
-      // one tap away on the meeting itself for the times it is not.
-      date: todayISO(),
-      attendees: [],
-      topics: [],
-      createdAt: Date.now(),
-    };
-    dispatch(id, { type: 'meeting/add', meeting });
+    // Today, because minutes are written on the day far more often than any other. The date is one
+    // tap away on the meeting itself for the times it is not.
+    const meetingId = startMeeting(id, name, todayISO());
     setTitle('');
-    router.push(`/board/${id}/meeting/${meeting.id}`);
+    if (meetingId) router.push(`/board/${id}/meeting/${meetingId}`);
   };
 
   return (
@@ -71,6 +65,12 @@ export default function MeetingsScreen() {
             <Button title="اجتماع جديد" icon="plus" onPress={add} disabled={!title.trim()} />
           </View>
 
+          {agenda.length ? (
+            <Txt style={styles.agendaHint}>
+              يبدأ كل اجتماع جديد بمحاورك الثابتة ({agenda.length}) جاهزةً للتدوين.
+            </Txt>
+          ) : null}
+
           {meetings.length === 0 ? (
             <View style={styles.empty}>
               <Icon name="calendar" size={34} color={colors.textSubtle} />
@@ -81,6 +81,8 @@ export default function MeetingsScreen() {
           ) : (
             meetings.map((meeting) => <Row key={meeting.id} boardId={id} meeting={meeting} />)
           )}
+
+          <AgendaSection boardId={id} agenda={agenda} />
         </ScrollView>
       </AvoidKeyboard>
     </View>
@@ -109,6 +111,67 @@ function Row({ boardId, meeting }: { boardId: string; meeting: Meeting }) {
   );
 }
 
+/**
+ * The subjects these meetings keep returning to. Every new meeting starts from them, so the agenda
+ * is set once here rather than retyped each week.
+ */
+function AgendaSection({ boardId, agenda }: { boardId: string; agenda: AgendaSubject[] }) {
+  const [draft, setDraft] = useState('');
+
+  const add = () => {
+    const title = draft.trim();
+    if (!title) return;
+    dispatch(boardId, { type: 'agenda/add', subject: { id: uid(), title } });
+    setDraft('');
+  };
+
+  const move = (subjectId: string, to: number) => dispatch(boardId, { type: 'agenda/move', subjectId, toIndex: to });
+
+  return (
+    <Section title="المحاور الثابتة" icon="layers" right={<Txt style={styles.count}>{agenda.length}</Txt>}>
+      <Txt style={styles.note}>
+        ما تعودون إليه كل اجتماع. يبدأ كل اجتماع جديد بها، ويبقى بإمكانك إضافة محاور طارئة داخله.
+      </Txt>
+      <View style={styles.agendaList}>
+        {agenda.map((subject, index) => (
+          <View key={subject.id} style={styles.agendaRow}>
+            <EditableText
+              value={subject.title}
+              onCommit={(title) => dispatch(boardId, { type: 'agenda/update', subjectId: subject.id, patch: { title } })}
+              required
+              placeholder="اسم المحور"
+              style={styles.agendaTitle}
+            />
+            <IconButton name="chevron-up" label="أعلى" onPress={() => move(subject.id, index - 1)} disabled={index === 0} />
+            <IconButton
+              name="chevron-down"
+              label="أسفل"
+              onPress={() => move(subject.id, index + 1)}
+              disabled={index === agenda.length - 1}
+            />
+            <IconButton
+              name="trash"
+              label="حذف المحور الثابت"
+              onPress={() => dispatch(boardId, { type: 'agenda/remove', subjectId: subject.id })}
+            />
+          </View>
+        ))}
+      </View>
+      <View style={styles.addRow}>
+        <Input
+          value={draft}
+          onChangeText={setDraft}
+          placeholder="محور ثابت جديد"
+          onSubmitEditing={add}
+          returnKeyType="done"
+          style={styles.addInput}
+        />
+        <IconButton name="plus" label="إضافة محور ثابت" onPress={add} disabled={!draft.trim()} />
+      </View>
+    </Section>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.page },
   flex: { flex: 1 },
@@ -129,4 +192,17 @@ const styles = StyleSheet.create({
   rowBody: { flex: 1, gap: 4 },
   rowTitle: { fontSize: 15, fontWeight: '700' },
   rowMeta: { fontSize: 12.5, color: colors.textSubtle },
+  agendaHint: { fontSize: 12.5, color: colors.textFaint, paddingHorizontal: 2 },
+  count: { marginStart: 'auto', fontSize: 12.5, color: colors.textSubtle },
+  note: { fontSize: 13, color: colors.textSubtle, lineHeight: 24 },
+  agendaList: { gap: 6, marginTop: 10 },
+  agendaRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 4,
+    paddingStart: 4,
+    borderRadius: 10,
+    backgroundColor: colors.surface,
+  },
+  agendaTitle: { flex: 1, fontSize: 14.5 },
 });

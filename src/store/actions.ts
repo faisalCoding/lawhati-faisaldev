@@ -2,7 +2,7 @@ import { normalizeShareCode, makeShareCode, uid } from '../lib/ids';
 import { createBoardFromTemplate, createWelcomeBoard, newCard } from '../lib/templates';
 import { currentActor, loadActor } from '../members/actor';
 import { applyOp } from '../shared/reducer';
-import type { Op, OpInput, OpMeta } from '../shared/types';
+import type { Meeting, Op, OpInput, OpMeta } from '../shared/types';
 import { bringOverPreviousAddress } from './previousAddress';
 import { findBoardIdByCode, store } from './store';
 import { SyncError, syncClient } from './sync';
@@ -57,6 +57,36 @@ export function dispatch(boardId: string, input: OpInput) {
   const sync = entry.sync ? { ...entry.sync, pending: [...entry.sync.pending, op] } : null;
   store.set((s) => ({ ...s, boards: { ...s.boards, [boardId]: { board, sync } } }));
   if (sync) syncClient.sendOp(sync.code, op);
+}
+
+/**
+ * Opens a meeting, already carrying the board's standing agenda as its topics.
+ *
+ * Six months of real minutes had nineteen agenda items that were really six recurring subjects:
+ * typing them out every week is work the board can do instead. Each topic keeps a thread back to
+ * the subject it came from, so everything ever decided about one of them can be gathered later.
+ *
+ * Returns the new meeting's id.
+ */
+export function startMeeting(boardId: string, title: string, date: string): string | null {
+  const board = store.get().boards[boardId]?.board;
+  if (!board) return null;
+
+  const meeting: Meeting = { id: uid(), title, date, attendees: [], topics: [], outcomes: [], createdAt: Date.now() };
+
+  // One entry in the activity: opening a meeting is one act, however many topics it starts with.
+  batch(() => {
+    dispatch(boardId, { type: 'meeting/add', meeting });
+    for (const subject of board.agenda ?? []) {
+      dispatch(boardId, {
+        type: 'topic/add',
+        meetingId: meeting.id,
+        topic: { id: uid(), title: subject.title, notes: '', subjectId: subject.id },
+      });
+    }
+  });
+
+  return meeting.id;
 }
 
 /**
