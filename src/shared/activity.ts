@@ -7,6 +7,7 @@ import type {
   ChecklistItem,
   List,
   Meeting,
+  Outcome,
   Op,
   OpInput,
   UndoStep,
@@ -33,11 +34,13 @@ export const CARD_FIELDS = ['title', 'description', 'due', 'dueDone', 'cover', '
 export const CHECK_FIELDS = ['text', 'done', 'assignee'] as const;
 export const MEETING_FIELDS = ['title', 'date', 'place'] as const;
 export const TOPIC_FIELDS = ['title', 'notes'] as const;
+export const OUTCOME_FIELDS = ['kind', 'text', 'assignee', 'due', 'cardId'] as const;
 
 type BoardField = (typeof BOARD_FIELDS)[number];
 type CardField = (typeof CARD_FIELDS)[number];
 type CheckField = (typeof CHECK_FIELDS)[number];
 type MeetingField = (typeof MEETING_FIELDS)[number];
+type OutcomeField = (typeof OUTCOME_FIELDS)[number];
 
 /** Whether two values are the same, a missing value counting as null. */
 export const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -45,6 +48,20 @@ export const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JS
 /** A meeting's field as every version reads it: `place` is optional and counts as empty. */
 export function meetingField(meeting: Meeting, key: MeetingField): unknown {
   return key === 'place' ? (meeting.place ?? '') : meeting[key];
+}
+
+/** An outcome's field as every version reads it: the task-only fields count as empty otherwise. */
+export function outcomeField(outcome: Outcome, key: OutcomeField): unknown {
+  switch (key) {
+    case 'assignee':
+      return outcome.assignee ?? null;
+    case 'due':
+      return outcome.due ?? null;
+    case 'cardId':
+      return outcome.cardId ?? null;
+    default:
+      return outcome[key];
+  }
 }
 
 /** A card's field as every version reads it: fields older cards lack have their default. */
@@ -150,6 +167,39 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
       const topic = meeting?.topics.find((t) => t.id === op.topicId);
       return meeting && topic ? { type: 'topic/remove', meeting: meeting.title, topic: topic.title } : null;
     }
+    case 'outcome/add': {
+      const meeting = (after.meetings ?? []).find((m) => m.id === op.meetingId);
+      return meeting
+        ? { type: 'outcome/add', meeting: meeting.title, kind: op.outcome.kind, text: op.outcome.text }
+        : null;
+    }
+    case 'outcome/update': {
+      const meeting = (after.meetings ?? []).find((m) => m.id === op.meetingId);
+      const was = (before.meetings ?? [])
+        .find((m) => m.id === op.meetingId)
+        ?.outcomes?.find((o) => o.id === op.outcomeId);
+      const now = meeting?.outcomes?.find((o) => o.id === op.outcomeId);
+      if (!meeting || !was || !now) return null;
+      // A card made from an outcome is the one change worth naming on its own: it is how a
+      // recommendation becomes work on the board.
+      if ((was.cardId ?? null) !== (now.cardId ?? null) && now.cardId) {
+        return { type: 'outcome/card', meeting: meeting.title, text: now.text };
+      }
+      if (was.kind !== now.kind) return { type: 'outcome/kind', meeting: meeting.title, text: now.text, kind: now.kind };
+      if (was.text !== now.text) return { type: 'outcome/text', meeting: meeting.title, text: now.text };
+      if ((was.assignee?.id ?? null) !== (now.assignee?.id ?? null)) {
+        return { type: 'outcome/assign', meeting: meeting.title, text: now.text, to: now.assignee?.name ?? null };
+      }
+      if ((was.due ?? null) !== (now.due ?? null)) {
+        return { type: 'outcome/due', meeting: meeting.title, text: now.text, due: now.due ?? null };
+      }
+      return null;
+    }
+    case 'outcome/remove': {
+      const meeting = (before.meetings ?? []).find((m) => m.id === op.meetingId);
+      const outcome = meeting?.outcomes?.find((o) => o.id === op.outcomeId);
+      return meeting && outcome ? { type: 'outcome/remove', meeting: meeting.title, text: outcome.text } : null;
+    }
     case 'member/seen': {
       const was = (before.members ?? []).some((m) => m.id === op.member.id);
       return { type: 'member/seen', name: op.member.name, renamed: was };
@@ -247,8 +297,100 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
 }
 
 /** The operations that undo `op`, in the order to send them. */
+/** A meeting from a board, or undefined. */
+const meetingIn = (board: Board, id: string) => (board.meetings ?? []).find((m) => m.id === id);
+
 export function undoOf(before: Board, after: Board, op: Op): UndoStep[] {
   switch (op.type) {
+    // Arriving on a board is not something anyone did on purpose, so it is not something to put
+    // back. Every device sends it on open; undoing it would be undone again a moment later.
+    case 'member/seen':
+      return [];
+
+    case 'meeting/add':
+      return [{ op: { type: 'meeting/remove', meetingId: op.meeting.id } }];
+    case 'meeting/update': {
+      const was = meetingIn(before, op.meetingId);
+      const now = meetingIn(after, op.meetingId);
+      const c =
+        was && now
+          ? changes(
+              MEETING_FIELDS,
+              op.patch,
+              (k) => meetingField(was, k),
+              (k) => meetingField(now, k),
+            )
+          : null;
+      return c ? [{ op: { type: 'meeting/update', meetingId: op.meetingId, patch: c.patch }, expect: c.expect }] : [];
+    }
+    case 'meeting/remove': {
+      // The whole meeting goes into the step, agenda and decisions with it: nothing else holds them.
+      const meeting = meetingIn(before, op.meetingId);
+      return meeting ? [{ op: { type: 'meeting/add', meeting } }] : [];
+    }
+    case 'meeting/attend':
+      return [{ op: { type: 'meeting/attend', meetingId: op.meetingId, person: op.person, on: !op.on } }];
+
+    case 'topic/add':
+      return [{ op: { type: 'topic/remove', meetingId: op.meetingId, topicId: op.topic.id } }];
+    case 'topic/update': {
+      const was = meetingIn(before, op.meetingId)?.topics.find((t) => t.id === op.topicId);
+      const now = meetingIn(after, op.meetingId)?.topics.find((t) => t.id === op.topicId);
+      const c =
+        was && now
+          ? changes(
+              TOPIC_FIELDS,
+              op.patch,
+              (k) => was[k],
+              (k) => now[k],
+            )
+          : null;
+      return c
+        ? [{ op: { type: 'topic/update', meetingId: op.meetingId, topicId: op.topicId, patch: c.patch }, expect: c.expect }]
+        : [];
+    }
+    case 'topic/move': {
+      const from = meetingIn(before, op.meetingId)?.topics.findIndex((t) => t.id === op.topicId) ?? -1;
+      return from < 0 ? [] : [{ op: { type: 'topic/move', meetingId: op.meetingId, topicId: op.topicId, toIndex: from } }];
+    }
+    case 'topic/remove': {
+      const meeting = meetingIn(before, op.meetingId);
+      const index = meeting?.topics.findIndex((t) => t.id === op.topicId) ?? -1;
+      const topic = index >= 0 ? meeting!.topics[index] : null;
+      return topic ? [{ op: { type: 'topic/add', meetingId: op.meetingId, topic, index } }] : [];
+    }
+
+    case 'outcome/add':
+      return [{ op: { type: 'outcome/remove', meetingId: op.meetingId, outcomeId: op.outcome.id } }];
+    case 'outcome/update': {
+      const was = meetingIn(before, op.meetingId)?.outcomes?.find((o) => o.id === op.outcomeId);
+      const now = meetingIn(after, op.meetingId)?.outcomes?.find((o) => o.id === op.outcomeId);
+      const c =
+        was && now
+          ? changes(
+              OUTCOME_FIELDS,
+              op.patch,
+              (k) => outcomeField(was, k),
+              (k) => outcomeField(now, k),
+            )
+          : null;
+      return c
+        ? [
+            {
+              op: { type: 'outcome/update', meetingId: op.meetingId, outcomeId: op.outcomeId, patch: c.patch },
+              expect: c.expect,
+            },
+          ]
+        : [];
+    }
+    case 'outcome/remove': {
+      const outcomes = meetingIn(before, op.meetingId)?.outcomes ?? [];
+      const index = outcomes.findIndex((o) => o.id === op.outcomeId);
+      return index >= 0
+        ? [{ op: { type: 'outcome/add', meetingId: op.meetingId, outcome: outcomes[index], index } }]
+        : [];
+    }
+
     case 'board/update': {
       const c = changes(
         BOARD_FIELDS,
@@ -519,6 +661,46 @@ export function stillApplies(board: Board, step: UndoStep): OpInput | null {
     }
     case 'check/remove':
       return board.cards[op.cardId]?.checklist.some((i) => i.id === op.itemId) ? op : null;
+
+    case 'meeting/add':
+      return meetingIn(board, op.meeting.id) ? null : op;
+    case 'meeting/remove':
+      return meetingIn(board, op.meetingId) ? op : null;
+    case 'meeting/update': {
+      const meeting = meetingIn(board, op.meetingId);
+      const patch = meeting ? kept(op.patch, (k) => meetingField(meeting, k as MeetingField)) : null;
+      return patch ? ({ ...op, patch } as OpInput) : null;
+    }
+    case 'meeting/attend': {
+      const meeting = meetingIn(board, op.meetingId);
+      // Already the way the undo would leave it — someone changed it again since.
+      return meeting && meeting.attendees.some((a) => a.id === op.person.id) !== op.on ? op : null;
+    }
+    case 'topic/add':
+      return meetingIn(board, op.meetingId) && !meetingIn(board, op.meetingId)!.topics.some((t) => t.id === op.topic.id)
+        ? op
+        : null;
+    case 'topic/move':
+    case 'topic/remove':
+      return meetingIn(board, op.meetingId)?.topics.some((t) => t.id === op.topicId) ? op : null;
+    case 'topic/update': {
+      const topic = meetingIn(board, op.meetingId)?.topics.find((t) => t.id === op.topicId);
+      const patch = topic ? kept(op.patch, (k) => topic[k as (typeof TOPIC_FIELDS)[number]]) : null;
+      return patch ? ({ ...op, patch } as OpInput) : null;
+    }
+    case 'outcome/add':
+      return meetingIn(board, op.meetingId) &&
+        !(meetingIn(board, op.meetingId)!.outcomes ?? []).some((o) => o.id === op.outcome.id)
+        ? op
+        : null;
+    case 'outcome/remove':
+      return (meetingIn(board, op.meetingId)?.outcomes ?? []).some((o) => o.id === op.outcomeId) ? op : null;
+    case 'outcome/update': {
+      const outcome = (meetingIn(board, op.meetingId)?.outcomes ?? []).find((o) => o.id === op.outcomeId);
+      const patch = outcome ? kept(op.patch, (k) => outcomeField(outcome, k as OutcomeField)) : null;
+      return patch ? ({ ...op, patch } as OpInput) : null;
+    }
+
     default:
       return null;
   }

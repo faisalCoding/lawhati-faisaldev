@@ -90,8 +90,32 @@ export interface MeetingTopic {
 }
 
 /**
- * A meeting held about this board: its agenda, who was there, and (from the next step) what came
- * out of it.
+ * What a meeting decided. Four shapes, because a meeting produces four kinds of thing and flattening
+ * them into free text loses what can be acted on:
+ *
+ * - `task`: someone is to do something by a date. It can be turned into a card on the board, which
+ *   is what puts it into the reminders, «assigned to me», and the lists people actually work from.
+ * - `note`: what was concluded, or a summary of the discussion. Nobody owes anything.
+ * - `announcement`: a general direction, told to everyone rather than owed by anyone.
+ * - `policy`: an addition, change or removal to the board's standing policies. Recorded from the
+ *   step that introduces those.
+ */
+export type OutcomeKind = 'task' | 'note' | 'announcement' | 'policy';
+
+export interface Outcome {
+  id: string;
+  kind: OutcomeKind;
+  text: string;
+  /** `task`: who is to do it, with their name kept, as a card's assignee is. */
+  assignee?: Assignee | null;
+  /** `task`: by when, in YYYY-MM-DD form. */
+  due?: string | null;
+  /** `task`: the card made from it, once one has been. Null while it is only written down. */
+  cardId?: string | null;
+}
+
+/**
+ * A meeting held about this board: its agenda, who was there, and what came out of it.
  *
  * Attendance keeps each person's name beside their id, the way a card's assignees do. The roster
  * can change — someone leaves, someone renames themselves — and a record of who was in a room on a
@@ -107,6 +131,8 @@ export interface Meeting {
   /** Who was there, in the order they were added. */
   attendees: Assignee[];
   topics: MeetingTopic[];
+  /** What the meeting decided, in the order it was written down. Older meetings lack it. */
+  outcomes?: Outcome[];
   createdAt: number;
 }
 
@@ -204,7 +230,14 @@ export type ActivityWhat =
   | { type: 'topic/title'; meeting: string; topic: string; from: string }
   | { type: 'topic/notes'; meeting: string; topic: string }
   | { type: 'topic/move'; meeting: string; topic: string }
-  | { type: 'topic/remove'; meeting: string; topic: string };
+  | { type: 'topic/remove'; meeting: string; topic: string }
+  | { type: 'outcome/add'; meeting: string; kind: OutcomeKind; text: string }
+  | { type: 'outcome/text'; meeting: string; text: string }
+  | { type: 'outcome/kind'; meeting: string; text: string; kind: OutcomeKind }
+  | { type: 'outcome/assign'; meeting: string; text: string; to: string | null }
+  | { type: 'outcome/due'; meeting: string; text: string; due: string | null }
+  | { type: 'outcome/card'; meeting: string; text: string }
+  | { type: 'outcome/remove'; meeting: string; text: string };
 
 /**
  * One operation that undoes part of a change. `expect` holds the values the change left: undoing
@@ -277,7 +310,16 @@ export type OpInput =
   | { type: 'topic/add'; meetingId: string; topic: MeetingTopic; index?: number }
   | { type: 'topic/update'; meetingId: string; topicId: string; patch: Partial<Pick<MeetingTopic, 'title' | 'notes'>> }
   | { type: 'topic/move'; meetingId: string; topicId: string; toIndex: number }
-  | { type: 'topic/remove'; meetingId: string; topicId: string };
+  | { type: 'topic/remove'; meetingId: string; topicId: string }
+  /** Added at the end, or at `index` (undoing a deletion puts one back in its place). */
+  | { type: 'outcome/add'; meetingId: string; outcome: Outcome; index?: number }
+  | {
+      type: 'outcome/update';
+      meetingId: string;
+      outcomeId: string;
+      patch: Partial<Pick<Outcome, 'kind' | 'text' | 'assignee' | 'due' | 'cardId'>>;
+    }
+  | { type: 'outcome/remove'; meetingId: string; outcomeId: string };
 
 /** How an operation is recorded in the board's activity. */
 export interface OpMeta {

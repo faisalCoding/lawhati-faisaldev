@@ -1,20 +1,24 @@
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '../../../../components/ui/Avatar';
+import { PeoplePicker } from '../../../../components/board/PeoplePicker';
 import { Button, Chip, Icon, IconButton } from '../../../../components/ui/Buttons';
 import { EditableText } from '../../../../components/ui/EditableText';
 import { AvoidKeyboard } from '../../../../components/ui/Keyboard';
 import { ModalHeader, Section } from '../../../../components/ui/Layout';
+import { Sheet } from '../../../../components/ui/Sheet';
 import { Input, Txt } from '../../../../components/ui/Txt';
 import { addDays, formatLongDate, todayISO } from '../../../../lib/dates';
 import { uid } from '../../../../lib/ids';
 import { goBack } from '../../../../lib/nav';
+import { OUTCOME_NAMES } from '../../../../lib/activityText';
 import { colors } from '../../../../lib/theme';
-import type { Board, Meeting, MeetingTopic } from '../../../../shared/types';
-import { dispatch } from '../../../../store/actions';
+import type { IconName } from '../../../../components/ui/iconData';
+import type { Board, Meeting, MeetingTopic, Outcome, OutcomeKind } from '../../../../shared/types';
+import { cardFromOutcome, dispatch } from '../../../../store/actions';
 import { useBoard } from '../../../../store/store';
 
 /** One meeting: when and where it was, who was there, and its agenda. */
@@ -66,6 +70,7 @@ export default function MeetingScreen() {
 
           <AttendeesSection board={board} meeting={meeting} />
           <TopicsSection boardId={id} meeting={meeting} />
+          <OutcomesSection board={board} meeting={meeting} />
 
           <Button
             title="حذف الاجتماع"
@@ -234,6 +239,178 @@ function TopicRow({
   );
 }
 
+/** The kinds a recommendation can take, in the order they are offered. */
+const KINDS: { kind: OutcomeKind; icon: IconName; hint: string }[] = [
+  { kind: 'task', icon: 'checks', hint: 'يفعلها أحدهم بموعد' },
+  { kind: 'note', icon: 'description', hint: 'خلاصة أو ملخّص نقاش' },
+  { kind: 'announcement', icon: 'info', hint: 'توجيه عامّ للجميع' },
+];
+
+/**
+ * What the meeting decided. A task carries who does it and by when, and can become a card on the
+ * board; the other kinds are written down and read later.
+ */
+function OutcomesSection({ board, meeting }: { board: Board; meeting: Meeting }) {
+  const [draft, setDraft] = useState('');
+  const [kind, setKind] = useState<OutcomeKind>('task');
+  const outcomes = meeting.outcomes ?? [];
+
+  const add = () => {
+    const text = draft.trim();
+    if (!text) return;
+    dispatch(board.id, {
+      type: 'outcome/add',
+      meetingId: meeting.id,
+      outcome: { id: uid(), kind, text, assignee: null, due: null, cardId: null },
+    });
+    setDraft('');
+  };
+
+  return (
+    <Section title="التوصيات" icon="target" right={<Txt style={styles.count}>{outcomes.length}</Txt>}>
+      <View style={styles.topics}>
+        {outcomes.map((outcome) => (
+          <OutcomeRow key={outcome.id} board={board} meeting={meeting} outcome={outcome} />
+        ))}
+      </View>
+
+      <View style={styles.wrapRow}>
+        {KINDS.map((k) => (
+          <Chip
+            key={k.kind}
+            label={OUTCOME_NAMES[k.kind]}
+            icon={k.icon}
+            selected={kind === k.kind}
+            onPress={() => setKind(k.kind)}
+          />
+        ))}
+      </View>
+      <Txt style={styles.kindHint}>{KINDS.find((k) => k.kind === kind)?.hint}</Txt>
+      <View style={styles.addRow}>
+        {/* Multiline, because a decision is often a sentence or two — so Return makes a new line
+            and cannot submit. The button beside it is the way in, and no misleading `returnKeyType`
+            promises otherwise. */}
+        <Input
+          value={draft}
+          onChangeText={setDraft}
+          placeholder="ما الذي تقرّر؟"
+          style={styles.addInput}
+          multiline
+        />
+        <IconButton name="plus" label="إضافة التوصية" onPress={add} disabled={!draft.trim()} />
+      </View>
+    </Section>
+  );
+}
+
+function OutcomeRow({ board, meeting, outcome }: { board: Board; meeting: Meeting; outcome: Outcome }) {
+  const [picking, setPicking] = useState(false);
+  const isTask = outcome.kind === 'task';
+  const card = outcome.cardId ? board.cards[outcome.cardId] : undefined;
+  const update = (patch: Parameters<typeof dispatchOutcome>[3]) =>
+    dispatchOutcome(board.id, meeting.id, outcome.id, patch);
+
+  return (
+    <View style={styles.topic}>
+      <View style={styles.topicHead}>
+        <View style={styles.kindTag}>
+          <Icon name={KINDS.find((k) => k.kind === outcome.kind)?.icon ?? 'description'} size={13} color={colors.primary} />
+          <Txt style={styles.kindTagText}>{OUTCOME_NAMES[outcome.kind]}</Txt>
+        </View>
+        <EditableText
+          value={outcome.text}
+          onCommit={(text) => update({ text })}
+          required
+          placeholder="نصّ التوصية"
+          style={styles.outcomeText}
+          multiline
+        />
+        <IconButton
+          name="trash"
+          label="حذف التوصية"
+          onPress={() => dispatch(board.id, { type: 'outcome/remove', meetingId: meeting.id, outcomeId: outcome.id })}
+        />
+      </View>
+
+      {isTask ? (
+        <>
+          <View style={styles.wrapRow}>
+            <Chip
+              label={outcome.assignee ? outcome.assignee.name : 'بلا مسؤول'}
+              icon="user"
+              selected={!!outcome.assignee}
+              onPress={() => setPicking(true)}
+            />
+            <Chip
+              label={outcome.due ? formatLongDate(outcome.due) : 'بلا موعد'}
+              icon="calendar"
+              selected={!!outcome.due}
+              onPress={() => update({ due: outcome.due ? null : todayISO() })}
+            />
+            {outcome.due ? (
+              <>
+                <IconButton name="chevron-right" label="اليوم السابق" onPress={() => update({ due: addDays(outcome.due!, -1) })} />
+                <IconButton name="chevron-left" label="اليوم التالي" onPress={() => update({ due: addDays(outcome.due!, 1) })} />
+              </>
+            ) : null}
+          </View>
+
+          {card ? (
+            <Pressable
+              onPress={() => router.push(`/board/${board.id}/card/${card.id}`)}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.cardLink, pressed && styles.pressed]}
+            >
+              <Icon name="kanban" size={14} color={colors.success} />
+              <Txt style={styles.cardLinkText} numberOfLines={1}>
+                على اللوحة: {card.title}
+              </Txt>
+            </Pressable>
+          ) : outcome.cardId ? (
+            // The card was deleted from the board; the minutes still say it was made.
+            <Txt style={styles.note}>كانت لها بطاقة، وقد حُذفت من اللوحة.</Txt>
+          ) : (
+            <Button
+              title={board.lists.length ? 'حوّلها إلى بطاقة' : 'أضف قائمة أولًا لتحويلها'}
+              icon="kanban"
+              variant="secondary"
+              disabled={board.lists.length === 0}
+              onPress={() => cardFromOutcome(board.id, meeting.id, outcome.id)}
+            />
+          )}
+        </>
+      ) : null}
+
+      <Sheet visible={picking} onClose={() => setPicking(false)} title="مسؤول التوصية">
+        <PeoplePicker
+          members={board.members ?? []}
+          single
+          shared={!!board.shareCode}
+          selected={outcome.assignee ? [outcome.assignee.id] : []}
+          onChange={(member) => {
+            update({ assignee: member ? { id: member.id, name: member.name } : null });
+            setPicking(false);
+          }}
+          onSignIn={() => {
+            setPicking(false);
+            router.push('/sign-in');
+          }}
+        />
+      </Sheet>
+    </View>
+  );
+}
+
+/** Narrow helper so a row's `update` keeps the patch's type without repeating it. */
+function dispatchOutcome(
+  boardId: string,
+  meetingId: string,
+  outcomeId: string,
+  patch: Partial<Pick<Outcome, 'kind' | 'text' | 'assignee' | 'due' | 'cardId'>>,
+) {
+  dispatch(boardId, { type: 'outcome/update', meetingId, outcomeId, patch });
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.page },
   flex: { flex: 1 },
@@ -274,6 +451,29 @@ const styles = StyleSheet.create({
   topicNumber: { width: 22, paddingTop: 9, fontSize: 13, fontWeight: '700', color: colors.textSubtle },
   topicTitle: { flex: 1, fontSize: 15, fontWeight: '700' },
   topicNotes: { fontSize: 14, color: colors.textSubtle, minHeight: 40 },
+  kindTag: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 3,
+    paddingHorizontal: 7,
+    borderRadius: 6,
+    backgroundColor: colors.list,
+  },
+  kindTagText: { fontSize: 11.5, fontWeight: '700', color: colors.primary },
+  kindHint: { marginTop: 6, fontSize: 12, color: colors.textFaint },
+  outcomeText: { flex: 1, fontSize: 15 },
+  cardLink: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: colors.successBg,
+  },
+  cardLinkText: { flex: 1, fontSize: 13, color: colors.success, fontWeight: '700' },
   addRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8, marginTop: 12 },
   addInput: { flex: 1, fontSize: 15 },
 });

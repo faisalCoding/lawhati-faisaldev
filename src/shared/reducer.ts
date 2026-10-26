@@ -7,6 +7,8 @@ import {
   LIST_FIELDS,
   MEETING_FIELDS,
   meetingField,
+  OUTCOME_FIELDS,
+  outcomeField,
   record,
   same,
   TOPIC_FIELDS,
@@ -292,6 +294,33 @@ function reduce(board: Board, op: Op): Board {
           ? { ...meeting, topics: meeting.topics.filter((t) => t.id !== op.topicId) }
           : meeting,
       );
+
+    case 'outcome/add':
+      return updateMeeting(board, op.meetingId, (meeting) => {
+        const outcomes = meeting.outcomes ?? [];
+        if (outcomes.some((o) => o.id === op.outcome.id)) return meeting;
+        return { ...meeting, outcomes: insertAt(outcomes, op.index ?? outcomes.length, op.outcome) };
+      });
+
+    case 'outcome/update':
+      return updateMeeting(board, op.meetingId, (meeting) => {
+        const outcomes = meeting.outcomes ?? [];
+        const index = outcomes.findIndex((o) => o.id === op.outcomeId);
+        if (index < 0) return meeting;
+        const patch = pick(op.patch, OUTCOME_FIELDS);
+        const keys = Object.keys(patch) as (keyof typeof patch)[];
+        if (keys.every((key) => same(patch[key], outcomeField(outcomes[index], key)))) return meeting;
+        const next = outcomes.slice();
+        next[index] = { ...next[index], ...patch };
+        return { ...meeting, outcomes: next };
+      });
+
+    case 'outcome/remove':
+      return updateMeeting(board, op.meetingId, (meeting) => {
+        const outcomes = meeting.outcomes ?? [];
+        if (!outcomes.some((o) => o.id === op.outcomeId)) return meeting;
+        return { ...meeting, outcomes: outcomes.filter((o) => o.id !== op.outcomeId) };
+      });
 
     default:
       return board;

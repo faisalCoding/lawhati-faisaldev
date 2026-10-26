@@ -3,8 +3,9 @@
 // project has no test runner, and this needs none — `npm run check:model`, plain assertions, no
 // framework to keep working.
 
+import { stillApplies, undoOf } from '../src/shared/activity';
 import { applyOp } from '../src/shared/reducer';
-import type { Board, Meeting, MeetingTopic, Op } from '../src/shared/types';
+import type { Board, Meeting, MeetingTopic, Outcome, Op } from '../src/shared/types';
 
 const board = (): Board => ({
   id: 'b', title: 'لوحة', color: '#000', icon: 'grid',
@@ -120,6 +121,121 @@ const order1 = applyOp(applyOp(board(), op({ type: 'meeting/add', meeting: meeti
 const order2 = applyOp(applyOp(board(), op({ type: 'meeting/add', meeting: meeting('y', '2026-06-06') })),
                        op({ type: 'meeting/add', meeting: meeting('x', '2026-05-05') }));
 ok('نفس الترتيب مهما اختلف ترتيب التطبيق', JSON.stringify(order1.meetings) === JSON.stringify(order2.meetings));
+
+
+// ── التوصيات ────────────────────────────────────────────────────────────────
+const outcome = (id: string, kind: Outcome['kind'] = 'note', text = `توصية ${id}`): Outcome => ({ id, kind, text });
+const withMeeting = applyOp(board(), op({ type: 'meeting/add', meeting: meeting('a', '2026-01-10') }));
+const outcomesOf = (b: Board) => b.meetings?.find((m) => m.id === 'a')?.outcomes ?? [];
+
+const o1 = applyOp(withMeeting, op({ type: 'outcome/add', meetingId: 'a', outcome: outcome('o1') }));
+ok('تُضاف التوصية', outcomesOf(o1).length === 1);
+ok('وتُسجَّل بنوعها', (o1.activity?.at(-1)?.what as { kind: string }).kind === 'note');
+
+const o1again = applyOp(o1, op({ type: 'outcome/add', meetingId: 'a', outcome: outcome('o1') }));
+ok('نفس المعرّف لا يتكرّر', o1again === o1);
+
+const o2 = applyOp(o1, op({ type: 'outcome/add', meetingId: 'a', outcome: outcome('o2', 'task', 'إعداد التقرير') }));
+ok('توصية ثانية بنوع مختلف', outcomesOf(o2).map((o) => o.kind).join(',') === 'note,task');
+
+// الإسناد والموعد — خاصّان بالمهمة
+const assigned = applyOp(o2, op({
+  type: 'outcome/update', meetingId: 'a', outcomeId: 'o2',
+  patch: { assignee: { id: '7', name: 'فيصل' }, due: '2026-02-01' },
+}));
+ok('تُسنَد المهمة بموعد', outcomesOf(assigned)[1].assignee?.name === 'فيصل' && outcomesOf(assigned)[1].due === '2026-02-01');
+const resend = applyOp(assigned, op({
+  type: 'outcome/update', meetingId: 'a', outcomeId: 'o2',
+  patch: { assignee: { id: '7', name: 'فيصل' }, due: '2026-02-01' },
+}));
+ok('إعادة نفس القيم لا تغيّر شيئًا', resend === assigned);
+
+const unassigned = applyOp(assigned, op({ type: 'outcome/update', meetingId: 'a', outcomeId: 'o2', patch: { assignee: null } }));
+ok('ويُلغى الإسناد', outcomesOf(unassigned)[1].assignee === null);
+
+// التحويل إلى بطاقة
+const carded = applyOp(assigned, op({ type: 'outcome/update', meetingId: 'a', outcomeId: 'o2', patch: { cardId: 'c9' } }));
+ok('ربط التوصية ببطاقة', outcomesOf(carded)[1].cardId === 'c9');
+ok('ويُسجَّل التحويل سطرًا خاصًّا', carded.activity?.at(-1)?.what.type === 'outcome/card');
+
+// التحويل يسبق غيره في السطر حتى لو تغيّر معه شيء آخر
+const both = applyOp(assigned, op({
+  type: 'outcome/update', meetingId: 'a', outcomeId: 'o2', patch: { cardId: 'c9', text: 'نصّ آخر' },
+}));
+ok('التحويل أولى بالذكر من تعديل النصّ', both.activity?.at(-1)?.what.type === 'outcome/card');
+
+const gone2 = applyOp(o2, op({ type: 'outcome/remove', meetingId: 'a', outcomeId: 'o1' }));
+ok('حذف توصية', outcomesOf(gone2).map((o) => o.id).join('') === 'o2');
+
+const ghostOutcome = applyOp(withMeeting, op({ type: 'outcome/update', meetingId: 'a', outcomeId: 'لا-وجود', patch: { text: 'x' } }));
+ok('تعديل توصية غير موجودة يُتجاهَل', ghostOutcome === withMeeting);
+const ghostMeeting = applyOp(withMeeting, op({ type: 'outcome/add', meetingId: 'لا-وجود', outcome: outcome('z') }));
+ok('توصية في اجتماع غير موجود تُتجاهَل', ghostMeeting === withMeeting);
+
+const atTop = applyOp(o2, op({ type: 'outcome/add', meetingId: 'a', outcome: outcome('o0'), index: 0 }));
+ok('ويمكن إدراج توصية في موضعها (للتراجع)', outcomesOf(atTop).map((o) => o.id).join('') === 'o0o1o2');
+
+
+// ── التراجع ────────────────────────────────────────────────────────────────
+// كل تغيير على اللوحة قابل للتراجع. نُثبت ذلك بالرحلة كاملة: طبّق، ثم تراجع، ثم قارن.
+const roundTrip = (start: Board, change: Op, label: string) => {
+  const after = applyOp(start, change);
+  const steps = undoOf(start, after, change);
+  let back = after;
+  for (const step of steps) {
+    const undo = stillApplies(back, step);
+    if (undo) back = applyOp(back, { ...undo, id: `u${++seq}`, at: 9000 + seq, by: null } as Op);
+  }
+  // Compared the way the model itself defines equality: `same()` treats a missing field and null
+  // as one and the same, and `meetingField`/`outcomeField` give every optional field its default.
+  // Undo writes those defaults explicitly where the original simply lacked them, which is the same
+  // board. Comparing raw JSON would call that a difference and would be testing the test.
+  const strip = (b: Board) =>
+    JSON.stringify({
+      ...b,
+      activity: undefined,
+      updatedAt: 0,
+      meetings: (b.meetings ?? []).map((m) => ({
+        ...m,
+        place: m.place ?? '',
+        outcomes: (m.outcomes ?? []).map((o) => ({
+          ...o,
+          assignee: o.assignee ?? null,
+          due: o.due ?? null,
+          cardId: o.cardId ?? null,
+        })),
+      })),
+    });
+  ok(`التراجع يُعيد الحال: ${label}`, strip(back) === strip(start));
+};
+
+const base = applyOp(board(), op({ type: 'meeting/add', meeting: meeting('a', '2026-01-10') }));
+const withTopics = applyOp(applyOp(base, op({ type: 'topic/add', meetingId: 'a', topic: topic('t1') })),
+                           op({ type: 'topic/add', meetingId: 'a', topic: topic('t2') }));
+const withOutcome = applyOp(withTopics, op({ type: 'outcome/add', meetingId: 'a', outcome: outcome('o1', 'task', 'مهمة') }));
+
+roundTrip(board(), op({ type: 'meeting/add', meeting: meeting('a', '2026-01-10') }), 'إضافة اجتماع');
+roundTrip(base, op({ type: 'meeting/update', meetingId: 'a', patch: { title: 'عنوان آخر', place: 'القاعة' } }), 'تعديل اجتماع');
+roundTrip(withOutcome, op({ type: 'meeting/remove', meetingId: 'a' }), 'حذف اجتماع بمحاوره وتوصياته');
+roundTrip(base, op({ type: 'meeting/attend', meetingId: 'a', person: { id: '7', name: 'فيصل' }, on: true }), 'إضافة حاضر');
+roundTrip(withTopics, op({ type: 'topic/add', meetingId: 'a', topic: topic('t3') }), 'إضافة محور');
+roundTrip(withTopics, op({ type: 'topic/update', meetingId: 'a', topicId: 't1', patch: { notes: 'نقاش' } }), 'تدوين نقاش');
+roundTrip(withTopics, op({ type: 'topic/move', meetingId: 'a', topicId: 't1', toIndex: 1 }), 'نقل محور');
+roundTrip(withTopics, op({ type: 'topic/remove', meetingId: 'a', topicId: 't1' }), 'حذف محور من الوسط');
+roundTrip(withOutcome, op({ type: 'outcome/add', meetingId: 'a', outcome: outcome('o2') }), 'إضافة توصية');
+roundTrip(withOutcome, op({ type: 'outcome/update', meetingId: 'a', outcomeId: 'o1', patch: { due: '2026-03-03', assignee: { id: '7', name: 'ف' } } }), 'إسناد توصية بموعد');
+roundTrip(withOutcome, op({ type: 'outcome/remove', meetingId: 'a', outcomeId: 'o1' }), 'حذف توصية');
+
+// والمحور المحذوف يعود إلى موضعه لا إلى آخر القائمة
+const threeTopics = applyOp(withTopics, op({ type: 'topic/add', meetingId: 'a', topic: topic('t3') }));
+const removedMiddle = applyOp(threeTopics, op({ type: 'topic/remove', meetingId: 'a', topicId: 't2' }));
+const stepsBack = undoOf(threeTopics, removedMiddle, op({ type: 'topic/remove', meetingId: 'a', topicId: 't2' }));
+let restored = removedMiddle;
+for (const st of stepsBack) {
+  const u = stillApplies(restored, st);
+  if (u) restored = applyOp(restored, { ...u, id: `r${++seq}`, at: 9500 + seq, by: null } as Op);
+}
+ok('المحور المحذوف يعود إلى موضعه نفسه', topicsOf(restored) === 't1t2t3');
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);

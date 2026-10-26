@@ -1,5 +1,5 @@
 import { normalizeShareCode, makeShareCode, uid } from '../lib/ids';
-import { createBoardFromTemplate, createWelcomeBoard } from '../lib/templates';
+import { createBoardFromTemplate, createWelcomeBoard, newCard } from '../lib/templates';
 import { currentActor, loadActor } from '../members/actor';
 import { applyOp } from '../shared/reducer';
 import type { Op, OpInput, OpMeta } from '../shared/types';
@@ -57,6 +57,40 @@ export function dispatch(boardId: string, input: OpInput) {
   const sync = entry.sync ? { ...entry.sync, pending: [...entry.sync.pending, op] } : null;
   store.set((s) => ({ ...s, boards: { ...s.boards, [boardId]: { board, sync } } }));
   if (sync) syncClient.sendOp(sync.code, op);
+}
+
+/**
+ * Turns a meeting's task outcome into a card on the board, carrying its assignee and its date.
+ *
+ * This is the whole point of writing a task down as its own kind rather than as prose: on the board
+ * it joins the reminders, «assigned to me», and the list people actually work from. The outcome
+ * keeps a link to the card, so the minutes still say what was decided and where it went.
+ *
+ * The card goes to the first list — where new work starts on a kanban board. Moving it is a drag.
+ * Returns the new card's id, or null when the board has no list to put it in.
+ */
+export function cardFromOutcome(boardId: string, meetingId: string, outcomeId: string): string | null {
+  const board = store.get().boards[boardId]?.board;
+  const meeting = board?.meetings?.find((m) => m.id === meetingId);
+  const outcome = meeting?.outcomes?.find((o) => o.id === outcomeId);
+  const list = board?.lists[0];
+  if (!board || !outcome || !list || outcome.cardId) return null;
+
+  const card = newCard(outcome.text, {
+    due: outcome.due ?? null,
+    assignees: outcome.assignee ? [outcome.assignee] : [],
+    description: `من اجتماع «${meeting?.title ?? ''}»`,
+  });
+
+  // One entry in the activity and one undo: making the card and linking it back are a single act.
+  // The link is dispatched first because a group is named after its first change, and «turned a
+  // recommendation into a card» tells a teammate what happened; «added a card» loses the meeting.
+  batch(() => {
+    dispatch(boardId, { type: 'outcome/update', meetingId, outcomeId, patch: { cardId: card.id } });
+    dispatch(boardId, { type: 'card/add', listId: list.id, card });
+  });
+
+  return card.id;
 }
 
 /**

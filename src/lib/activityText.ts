@@ -1,10 +1,18 @@
 import { revertDepth } from '../shared/activity';
-import type { ActivityEntry, ActivityWhat, PowerUpKey } from '../shared/types';
+import type { ActivityEntry, ActivityWhat, OutcomeKind, PowerUpKey } from '../shared/types';
 import { formatShortDate, toISODate } from './dates';
 import { pluralCards, pluralTasks, pluralTopics } from './text';
 
 // The board's activity in words. Each line names the change as a verbal noun («إنجاز البطاقة…»)
 // after the person's name, so it reads the same whoever made it.
+
+/** What each kind of outcome is called, in the activity and on screen. */
+export const OUTCOME_NAMES: Record<OutcomeKind, string> = {
+  task: 'مهمة',
+  note: 'ملاحظة',
+  announcement: 'إعلان',
+  policy: 'تعديل سياسة',
+};
 
 const POWER_UP_NAMES: Record<PowerUpKey, string> = {
   labels: 'التسميات',
@@ -121,6 +129,24 @@ export function describeWhat(what: ActivityWhat, n = 1, tasks = 1): string {
       return `ترتيب محور ${q(what.topic)} في ${q(what.meeting)}`;
     case 'topic/remove':
       return `حذف محور ${q(what.topic)} من ${q(what.meeting)}`;
+    case 'outcome/add':
+      return `إضافة ${OUTCOME_NAMES[what.kind]} ${q(what.text)} إلى ${q(what.meeting)}`;
+    case 'outcome/kind':
+      return `جعل ${q(what.text)} ${OUTCOME_NAMES[what.kind]} في ${q(what.meeting)}`;
+    case 'outcome/text':
+      return `تعديل توصية ${q(what.text)} في ${q(what.meeting)}`;
+    case 'outcome/assign':
+      return what.to
+        ? `إسناد ${q(what.text)} إلى ${what.to} في ${q(what.meeting)}`
+        : `إلغاء إسناد ${q(what.text)} في ${q(what.meeting)}`;
+    case 'outcome/due':
+      return what.due
+        ? `تحديد موعد ${q(what.text)} في ${formatShortDate(what.due)}`
+        : `إزالة موعد ${q(what.text)}`;
+    case 'outcome/card':
+      return `تحويل ${q(what.text)} إلى بطاقة على اللوحة`;
+    case 'outcome/remove':
+      return `حذف توصية ${q(what.text)} من ${q(what.meeting)}`;
     case 'member/seen':
       // The line reads after the person's name, and here they are the person: «فيصل: انضمام إلى
       // اللوحة», not «… انضمام فيصل».
