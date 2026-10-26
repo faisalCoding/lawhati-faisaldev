@@ -61,7 +61,8 @@
     "deploy:web": "bash deploy/deploy-web.sh",
     "vapid": "node scripts/vapid.mjs",
     "icons": "node scripts/brand-icons.mjs",
-    "check:model": "tsx scripts/check-model.ts"
+    "check:model": "tsx scripts/check-model.ts",
+    "seed:meetings": "tsx scripts/seed-meetings.ts"
   },
   "private": true
 }
