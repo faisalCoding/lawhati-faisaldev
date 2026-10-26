@@ -138,6 +138,14 @@ export interface Outcome {
   cardId?: string | null;
   /** `policy`: the standing rule it added or amended, once it has. */
   policyId?: string | null;
+  /**
+   * Settled: done, or decided against, or simply dealt with.
+   *
+   * A task that became a card is settled by the card being done. One that did not — «عزام يراجع
+   * مع البراء» needed no card — has only this. Without it there is no honest answer to the
+   * question the next meeting opens with: what did we say we would do, and did we?
+   */
+  done?: boolean;
 }
 
 /**
@@ -310,7 +318,8 @@ export type ActivityWhat =
   | { type: 'policy/file'; policy: string; section: string | null }
   | { type: 'policy/move'; policy: string }
   | { type: 'policy/remove'; policy: string }
-  | { type: 'outcome/policy'; meeting: string; text: string; added: boolean };
+  | { type: 'outcome/policy'; meeting: string; text: string; added: boolean }
+  | { type: 'outcome/done'; meeting: string; text: string; done: boolean };
 
 /**
  * One operation that undoes part of a change. `expect` holds the values the change left: undoing
@@ -390,7 +399,9 @@ export type OpInput =
       type: 'outcome/update';
       meetingId: string;
       outcomeId: string;
-      patch: Partial<Pick<Outcome, 'kind' | 'text' | 'topicId' | 'assignee' | 'due' | 'cardId' | 'policyId'>>;
+      patch: Partial<
+        Pick<Outcome, 'kind' | 'text' | 'topicId' | 'assignee' | 'due' | 'cardId' | 'policyId' | 'done'>
+      >;
     }
   | { type: 'outcome/remove'; meetingId: string; outcomeId: string }
   | { type: 'agenda/add'; subject: AgendaSubject; index?: number }

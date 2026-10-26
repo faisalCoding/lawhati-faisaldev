@@ -3,6 +3,7 @@
 // project has no test runner, and this needs none — `npm run check:model`, plain assertions, no
 // framework to keep working.
 
+import { isOpen, openBefore } from '../src/lib/meetings';
 import { stillApplies, undoOf } from '../src/shared/activity';
 import { applyOp } from '../src/shared/reducer';
 import type { AgendaSubject, Board, Meeting, MeetingTopic, Outcome, Op, Policy, PolicySection } from '../src/shared/types';
@@ -178,54 +179,65 @@ ok('ويمكن إدراج توصية في موضعها (للتراجع)', outcom
 
 // ── التراجع ────────────────────────────────────────────────────────────────
 // كل تغيير على اللوحة قابل للتراجع. نُثبت ذلك بالرحلة كاملة: طبّق، ثم تراجع، ثم قارن.
-const roundTrip = (start: Board, change: Op, label: string) => {
-  const after = applyOp(start, change);
-  const steps = undoOf(start, after, change);
-  let back = after;
-  for (const step of steps) {
-    const undo = stillApplies(back, step);
-    if (undo) back = applyOp(back, { ...undo, id: `u${++seq}`, at: 9000 + seq, by: null } as Op);
-  }
-  // Compared the way the model itself defines equality: `same()` treats a missing field and null
-  // as one and the same, and `meetingField`/`outcomeField` give every optional field its default.
-  // Undo writes those defaults explicitly where the original simply lacked them, which is the same
-  // board. Comparing raw JSON would call that a difference and would be testing the test.
-  const strip = (b: Board) =>
-    JSON.stringify({
-      ...b,
-      activity: undefined,
-      updatedAt: 0,
-      meetings: (b.meetings ?? []).map((m) => ({
-        ...m,
-        place: m.place ?? '',
-        outcomes: (m.outcomes ?? []).map((o) => ({
-          ...o,
-          assignee: o.assignee ?? null,
-          due: o.due ?? null,
-          cardId: o.cardId ?? null,
-        })),
-      })),
-    });
-  ok(`التراجع يُعيد الحال: ${label}`, strip(back) === strip(start));
-};
+/**
+ * Compared the way the model itself defines equality: `same()` treats a missing field and null as
+ * one, and the `*Field` readers give every optional field its default. Undo writes those defaults
+ * explicitly where the original simply lacked them, which is the same board. Comparing raw JSON
+ * would call that a difference and would be testing the test.
+ *
+ * One normaliser for every shape, because two of them drifted apart once and a real round-trip
+ * failure hid behind the gap.
+ */
+/**
+ * JSON with object keys in a fixed order. `{...o, done: false}` keeps `done` where the spread put
+ * it, so a board that already had the field serialises in a different order from one that gained
+ * it — the same board, called different by a plain stringify. Arrays keep their order, which is
+ * the one ordering that carries meaning here.
+ */
+const stable = (value: unknown): string =>
+  JSON.stringify(value, (_key, v) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as object).sort(([a], [c]) => (a < c ? -1 : a > c ? 1 : 0)))
+      : v,
+  );
 
-/** Like `roundTrip`, normalising the policy fields the model gives defaults to. */
-const roundTripP = (start: Board, change: Op, label: string) => {
+const strip = (b: Board) =>
+  stable({
+    ...b,
+    activity: undefined,
+    updatedAt: 0,
+    meetings: (b.meetings ?? []).map((m) => ({
+      ...m,
+      place: m.place ?? '',
+      topics: m.topics.map((t) => ({ ...t, subjectId: t.subjectId ?? null })),
+      outcomes: (m.outcomes ?? []).map((o) => ({
+        ...o,
+        topicId: o.topicId ?? null,
+        assignee: o.assignee ?? null,
+        due: o.due ?? null,
+        cardId: o.cardId ?? null,
+        policyId: o.policyId ?? null,
+        done: o.done ?? false,
+      })),
+    })),
+    policies: (b.policies ?? []).map((x) => ({
+      ...x,
+      sectionId: x.sectionId ?? null,
+      meetingId: x.meetingId ?? null,
+    })),
+  });
+
+/** Applies a change, undoes it, and checks the board is back where it started. */
+const roundTrip = (start: Board, change: Op, label: string) => {
   const after = applyOp(start, change);
   let back = after;
   for (const step of undoOf(start, after, change)) {
     const undo = stillApplies(back, step);
-    if (undo) back = applyOp(back, { ...undo, id: `up${++seq}`, at: 9700 + seq, by: null } as Op);
+    if (undo) back = applyOp(back, { ...undo, id: `u${++seq}`, at: 9000 + seq, by: null } as Op);
   }
-  const strip = (b: Board) =>
-    JSON.stringify({
-      ...b,
-      activity: undefined,
-      updatedAt: 0,
-      policies: (b.policies ?? []).map((x) => ({ ...x, sectionId: x.sectionId ?? null, meetingId: x.meetingId ?? null })),
-    });
   ok(`التراجع يُعيد الحال: ${label}`, strip(back) === strip(start));
 };
+const roundTripP = roundTrip;
 
 const base = applyOp(board(), op({ type: 'meeting/add', meeting: meeting('a', '2026-01-10') }));
 const withTopics = applyOp(applyOp(base, op({ type: 'topic/add', meetingId: 'a', topic: topic('t1') })),
@@ -378,6 +390,48 @@ roundTripP(pol, op({ type: 'policy/add', policy: policy('p3') }), 'إضافة س
 roundTripP(pol, op({ type: 'policy/update', policyId: 'p1', patch: { text: 'نصّ آخر', sectionId: 'c2' } }), 'تعديل سياسة ونقلها');
 roundTripP(pol, op({ type: 'policy/move', policyId: 'p1', toIndex: 1 }), 'ترتيب سياسة');
 roundTripP(pol, op({ type: 'policy/remove', policyId: 'p1' }), 'حذف سياسة');
+
+
+// ── ما بقي مفتوحًا ──────────────────────────────────────────────────────────
+const open = (o: Partial<Outcome>): Outcome => ({ id: 'x', kind: 'task', text: 'ت', ...o }) as Outcome;
+const plain = board();
+
+ok('المهمة بلا بطاقة مفتوحة', isOpen(open({ kind: 'task' }), plain));
+ok('والمُنجَزة يدويًّا مغلقة', !isOpen(open({ kind: 'task', done: true }), plain));
+ok('والمسؤولية لا تُتابَع — لا تنتهي أصلًا', !isOpen(open({ kind: 'assignment' }), plain));
+ok('ولا الملاحظة', !isOpen(open({ kind: 'note' }), plain));
+ok('ولا الإعلان', !isOpen(open({ kind: 'announcement' }), plain));
+ok('والسياسة مفتوحة حتى تُكتب فعلًا', isOpen(open({ kind: 'policy' }), plain));
+ok('فإذا كُتبت أُغلقت', !isOpen(open({ kind: 'policy', policyId: 'p1' }), plain));
+
+// مهمة لها بطاقة: الحكم للبطاقة
+const withCards: Board = {
+  ...plain,
+  cards: {
+    c1: { id: 'c1', title: 'جارية', description: '', labelIds: [], due: null, checklist: [], cover: null, createdAt: 1 },
+    c2: { id: 'c2', title: 'منجزة', description: '', labelIds: [], due: null, dueDone: true, checklist: [], cover: null, createdAt: 1 },
+  },
+};
+ok('مهمة ببطاقة غير منجزة تبقى مفتوحة', isOpen(open({ kind: 'task', cardId: 'c1' }), withCards));
+ok('ومهمة ببطاقة منجزة تُغلق', !isOpen(open({ kind: 'task', cardId: 'c2' }), withCards));
+ok('ومهمة ببطاقة محذوفة تبقى مفتوحة', isOpen(open({ kind: 'task', cardId: 'لا-وجود' }), withCards));
+
+// الترتيب: الأقدم يظهر أيضًا، لا الاجتماع السابق وحده
+let timeline = board();
+for (const [id, date] of [['m1', '2026-01-01'], ['m2', '2026-01-08'], ['m3', '2026-01-15']] as const) {
+  timeline = applyOp(timeline, op({ type: 'meeting/add', meeting: meeting(id, date) }));
+  timeline = applyOp(timeline, op({ type: 'outcome/add', meetingId: id, outcome: open({ id: `o-${id}`, kind: 'task', text: `مهمة ${id}` }) }));
+}
+const before3 = openBefore(timeline, 'm3');
+ok('يظهر كل ما سبق لا الاجتماع السابق وحده', before3.map((g) => g.meeting.id).join(',') === 'm2,m1');
+ok('والأحدث أولًا', before3[0].meeting.id === 'm2');
+ok('ولا شيء قبل الأقدم', openBefore(timeline, 'm1').length === 0);
+
+const settled = applyOp(timeline, op({ type: 'outcome/update', meetingId: 'm2', outcomeId: 'o-m2', patch: { done: true } }));
+ok('إنجاز توصية يُخرج اجتماعها من المتابعة', openBefore(settled, 'm3').map((g) => g.meeting.id).join(',') === 'm1');
+ok('ويُسجَّل إنجازًا', settled.activity?.at(-1)?.what.type === 'outcome/done');
+
+roundTripP(timeline, op({ type: 'outcome/update', meetingId: 'm2', outcomeId: 'o-m2', patch: { done: true } }), 'إنجاز توصية');
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);

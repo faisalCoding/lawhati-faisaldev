@@ -35,7 +35,16 @@ export const CARD_FIELDS = ['title', 'description', 'due', 'dueDone', 'cover', '
 export const CHECK_FIELDS = ['text', 'done', 'assignee'] as const;
 export const MEETING_FIELDS = ['title', 'date', 'place'] as const;
 export const TOPIC_FIELDS = ['title', 'notes'] as const;
-export const OUTCOME_FIELDS = ['kind', 'text', 'topicId', 'assignee', 'due', 'cardId', 'policyId'] as const;
+export const OUTCOME_FIELDS = [
+  'kind',
+  'text',
+  'topicId',
+  'assignee',
+  'due',
+  'cardId',
+  'policyId',
+  'done',
+] as const;
 export const POLICY_FIELDS = ['text', 'sectionId', 'meetingId'] as const;
 
 type BoardField = (typeof BOARD_FIELDS)[number];
@@ -66,6 +75,8 @@ export function outcomeField(outcome: Outcome, key: OutcomeField): unknown {
       return outcome.cardId ?? null;
     case 'policyId':
       return outcome.policyId ?? null;
+    case 'done':
+      return outcome.done ?? false;
     default:
       return outcome[key];
   }
@@ -211,6 +222,9 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
         // exists and the two cases are indistinguishable from here.
         const existed = (before.policies ?? []).some((x) => x.id === now.policyId);
         return { type: 'outcome/policy', meeting: meeting.title, text: now.text, added: !existed };
+      }
+      if ((was.done ?? false) !== (now.done ?? false)) {
+        return { type: 'outcome/done', meeting: meeting.title, text: now.text, done: now.done ?? false };
       }
       if (was.kind !== now.kind) return { type: 'outcome/kind', meeting: meeting.title, text: now.text, kind: now.kind };
       if ((was.topicId ?? null) !== (now.topicId ?? null)) {

@@ -12,6 +12,7 @@ import { ModalHeader, Section } from '../../../../components/ui/Layout';
 import { Sheet } from '../../../../components/ui/Sheet';
 import { Input, Txt } from '../../../../components/ui/Txt';
 import { addDays, formatLongDate, todayISO } from '../../../../lib/dates';
+import { openBefore } from '../../../../lib/meetings';
 import { uid } from '../../../../lib/ids';
 import { goBack } from '../../../../lib/nav';
 import { OUTCOME_NAMES } from '../../../../lib/activityText';
@@ -68,6 +69,7 @@ export default function MeetingScreen() {
             />
           </Section>
 
+          <FollowUpSection board={board} meeting={meeting} />
           <AttendeesSection board={board} meeting={meeting} />
           <TopicsSection boardId={id} meeting={meeting} />
           <OutcomesSection board={board} meeting={meeting} />
@@ -239,6 +241,71 @@ function TopicRow({
   );
 }
 
+/**
+ * What earlier meetings left open — tasks not done, rules agreed and never written down.
+ *
+ * The fourth meeting here opened by repeating the third's assignments under «الاجتماع الماضي».
+ * This is that habit, except the board remembers instead of someone retyping, and it reaches past
+ * the previous meeting: something agreed three meetings ago and still undone is more worth seeing,
+ * not less.
+ */
+function FollowUpSection({ board, meeting }: { board: Board; meeting: Meeting }) {
+  const groups = openBefore(board, meeting.id);
+  if (groups.length === 0) return null;
+
+  const total = groups.reduce((sum, g) => sum + g.items.length, 0);
+
+  return (
+    <Section title="متابعة ما سبق" icon="history" right={<Txt style={styles.count}>{total}</Txt>}>
+      {groups.map((group) => (
+        <View key={group.meeting.id} style={styles.group}>
+          <Pressable
+            onPress={() => router.push(`/board/${board.id}/meeting/${group.meeting.id}`)}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.followHead, pressed && styles.pressed]}
+          >
+            <Txt style={styles.groupTitle}>
+              {group.meeting.title} · {formatLongDate(group.meeting.date)}
+            </Txt>
+            <Icon name="chevron-left" size={14} color={colors.textFaint} />
+          </Pressable>
+
+          {group.items.map((item) => (
+            <View key={item.id} style={styles.followRow}>
+              <Pressable
+                accessibilityRole="checkbox"
+                aria-checked={false}
+                accessibilityLabel={`إنجاز ${item.text}`}
+                onPress={() =>
+                  dispatch(board.id, {
+                    type: 'outcome/update',
+                    meetingId: group.meeting.id,
+                    outcomeId: item.id,
+                    patch: { done: true },
+                  })
+                }
+                style={({ pressed }) => [styles.followCheck, pressed && styles.pressed]}
+              >
+                <Icon name="check" size={14} color={colors.textFaint} />
+              </Pressable>
+              <View style={styles.followBody}>
+                <Txt style={styles.followText} numberOfLines={3}>
+                  {item.text}
+                </Txt>
+                <Txt style={styles.followMeta}>
+                  {OUTCOME_NAMES[item.kind]}
+                  {item.assignee ? ` · ${item.assignee.name}` : ''}
+                  {item.due ? ` · ${formatLongDate(item.due)}` : ''}
+                </Txt>
+              </View>
+            </View>
+          ))}
+        </View>
+      ))}
+    </Section>
+  );
+}
+
 /** The kinds a recommendation can take, in the order they are offered. */
 const KINDS: { kind: OutcomeKind; icon: IconName; hint: string }[] = [
   { kind: 'task', icon: 'checks', hint: 'يفعلها أحدهم وتنتهي' },
@@ -354,6 +421,18 @@ function OutcomeRow({ board, meeting, outcome }: { board: Board; meeting: Meetin
   return (
     <View style={styles.topic}>
       <View style={styles.topicHead}>
+        {/* Only what can be owed is tickable: a note and an announcement ask nothing of anyone. */}
+        {outcome.kind === 'task' || outcome.kind === 'policy' ? (
+          <Pressable
+            accessibilityRole="checkbox"
+            aria-checked={outcome.done === true}
+            accessibilityLabel={`إنجاز ${outcome.text}`}
+            onPress={() => update({ done: !outcome.done })}
+            style={({ pressed }) => [styles.doneBox, outcome.done && styles.doneBoxOn, pressed && styles.pressed]}
+          >
+            {outcome.done ? <Icon name="check" size={13} color={colors.surface} /> : null}
+          </Pressable>
+        ) : null}
         <View style={styles.kindTag}>
           <Icon name={KINDS.find((k) => k.kind === outcome.kind)?.icon ?? 'description'} size={13} color={colors.primary} />
           <Txt style={styles.kindTagText}>{OUTCOME_NAMES[outcome.kind]}</Txt>
@@ -506,7 +585,7 @@ function dispatchOutcome(
   boardId: string,
   meetingId: string,
   outcomeId: string,
-  patch: Partial<Pick<Outcome, 'kind' | 'text' | 'topicId' | 'assignee' | 'due' | 'cardId'>>,
+  patch: Partial<Pick<Outcome, 'kind' | 'text' | 'topicId' | 'assignee' | 'due' | 'cardId' | 'policyId' | 'done'>>,
 ) {
   dispatch(boardId, { type: 'outcome/update', meetingId, outcomeId, patch });
 }
@@ -547,6 +626,38 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.7 },
   topics: { gap: 12 },
   group: { gap: 8, marginBottom: 14 },
+  followHead: { flexDirection: 'row-reverse', alignItems: 'center', gap: 6 },
+  followRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 11,
+    borderRadius: 10,
+    backgroundColor: colors.surface,
+  },
+  followCheck: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  followBody: { flex: 1, gap: 3 },
+  followText: { fontSize: 14, lineHeight: 24 },
+  followMeta: { fontSize: 11.5, color: colors.textFaint },
+  doneBox: {
+    width: 20,
+    height: 20,
+    marginTop: 8,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  doneBoxOn: { backgroundColor: colors.success, borderColor: colors.success },
   groupTitle: { fontSize: 12.5, fontWeight: '700', color: colors.textSubtle },
   topic: { gap: 6, padding: 12, borderRadius: 12, backgroundColor: colors.surface },
   topicHead: { flexDirection: 'row-reverse', alignItems: 'flex-start', gap: 4 },

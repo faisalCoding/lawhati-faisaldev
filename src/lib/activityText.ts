@@ -148,6 +148,8 @@ export function describeWhat(what: ActivityWhat, n = 1, tasks = 1): string {
       return `تحويل ${q(what.text)} إلى بطاقة على اللوحة`;
     case 'outcome/remove':
       return `حذف توصية ${q(what.text)} من ${q(what.meeting)}`;
+    case 'outcome/done':
+      return `${what.done ? 'إنجاز' : 'إعادة فتح'} توصية ${q(what.text)}`;
     case 'outcome/topic':
       return what.topic ? `نقل ${q(what.text)} إلى محور ${q(what.topic)}` : `جعل ${q(what.text)} توصية عامة`;
     case 'agenda/add':
