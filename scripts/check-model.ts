@@ -4,6 +4,7 @@
 // framework to keep working.
 
 import { isOpen, openBefore } from '../src/lib/meetings';
+import { subjectHistory } from '../src/lib/subjects';
 import { stillApplies, undoOf } from '../src/shared/activity';
 import { applyOp } from '../src/shared/reducer';
 import type { AgendaSubject, Board, Meeting, MeetingTopic, Outcome, Op, Policy, PolicySection } from '../src/shared/types';
@@ -432,6 +433,50 @@ ok('إنجاز توصية يُخرج اجتماعها من المتابعة', op
 ok('ويُسجَّل إنجازًا', settled.activity?.at(-1)?.what.type === 'outcome/done');
 
 roundTripP(timeline, op({ type: 'outcome/update', meetingId: 'm2', outcomeId: 'o-m2', patch: { done: true } }), 'إنجاز توصية');
+
+
+// ── تاريخ الموضوع عبر الاجتماعات ───────────────────────────────────────────
+let hist = applyOp(board(), op({ type: 'agenda/add', subject: subject('S', 'الرحلة') }));
+hist = applyOp(hist, op({ type: 'agenda/add', subject: subject('T', 'المسابقة') }));
+
+// ثلاثة اجتماعات: الأول والثالث فيهما «الرحلة»، والثاني فيه «المسابقة» وحدها
+for (const [id, date] of [['h1', '2026-02-01'], ['h2', '2026-02-08'], ['h3', '2026-02-15']] as const) {
+  hist = applyOp(hist, op({ type: 'meeting/add', meeting: meeting(id, date, `اجتماع ${id}`) }));
+}
+hist = applyOp(hist, op({ type: 'topic/add', meetingId: 'h1', topic: { id: 'k1', title: 'الرحلة', notes: 'نقاش أول', subjectId: 'S' } }));
+hist = applyOp(hist, op({ type: 'topic/add', meetingId: 'h2', topic: { id: 'k2', title: 'المسابقة', notes: '', subjectId: 'T' } }));
+hist = applyOp(hist, op({ type: 'topic/add', meetingId: 'h3', topic: { id: 'k3', title: 'الرحلة', notes: 'نقاش ثانٍ', subjectId: 'S' } }));
+
+hist = applyOp(hist, op({ type: 'outcome/add', meetingId: 'h1', outcome: { id: 'q1', kind: 'policy', text: 'يُمنع الالتحاق عند التأخر', topicId: 'k1' } }));
+hist = applyOp(hist, op({ type: 'outcome/add', meetingId: 'h1', outcome: { id: 'q2', kind: 'task', text: 'تجهيز الباص', topicId: 'k1' } }));
+// توصية عامة في نفس الاجتماع: ليست للموضوع
+hist = applyOp(hist, op({ type: 'outcome/add', meetingId: 'h1', outcome: { id: 'q3', kind: 'note', text: 'ملاحظة عامة' } }));
+hist = applyOp(hist, op({ type: 'outcome/add', meetingId: 'h3', outcome: { id: 'q4', kind: 'task', text: 'حجز الملعب', topicId: 'k3', done: true } }));
+// وتوصية لموضوع آخر
+hist = applyOp(hist, op({ type: 'outcome/add', meetingId: 'h2', outcome: { id: 'q5', kind: 'task', text: 'جوائز', topicId: 'k2' } }));
+
+// سياسة خرجت من «الرحلة»، وأخرى كُتبت مباشرة
+hist = applyOp(hist, op({ type: 'outcome/update', meetingId: 'h1', outcomeId: 'q1', patch: { policyId: 'P1' } }));
+hist = applyOp(hist, op({ type: 'policy/add', policy: { id: 'P1', text: 'يُمنع الالتحاق عند التأخر', meetingId: 'h1', at: 5 } }));
+hist = applyOp(hist, op({ type: 'policy/add', policy: { id: 'P2', text: 'قاعدة لا علاقة لها', at: 6 } }));
+
+const h = subjectHistory(hist, 'S')!;
+ok('يُجمَع الموضوع من كل اجتماعاته', h.visits.map((v) => v.meeting.id).join(',') === 'h3,h1');
+ok('والأحدث أولًا', h.visits[0].meeting.id === 'h3');
+ok('ويحمل نقاش كل مرة', h.visits[1].topic.notes === 'نقاش أول');
+ok('ويأخذ توصيات محوره وحدها', h.visits[1].outcomes.map((o) => o.id).join(',') === 'q1,q2');
+ok('ولا يدّعي التوصيات العامة', !h.visits[1].outcomes.some((o) => o.id === 'q3'));
+ok('ولا توصيات موضوع آخر', !h.visits.some((v) => v.outcomes.some((o) => o.id === 'q5')));
+ok('ويجمع ما خرج منه من سياسات', h.policies.map((p) => p.id).join(',') === 'P1');
+ok('دون سياسة كُتبت مباشرة', !h.policies.some((p) => p.id === 'P2'));
+ok('ويَعُدّ الزيارات والقرارات', h.counts.visits === 2 && h.counts.decisions === 3);
+ok('ويَعُدّ ما بقي مفتوحًا منها', h.counts.open === 1);
+ok('وموضوع لم يُناقَش يُجمَع فارغًا', subjectHistory(hist, 'T')!.visits.length === 1);
+ok('وموضوع غير موجود يُعيد عدمًا', subjectHistory(hist, 'لا-وجود') === null);
+
+// حذف الموضوع الثابت يقطع الخيط، فلا يُجمَع بعده
+const cut = applyOp(hist, op({ type: 'agenda/remove', subjectId: 'S' }));
+ok('وبعد حذف الموضوع لا يبقى ما يُجمَع', subjectHistory(cut, 'S') === null);
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);

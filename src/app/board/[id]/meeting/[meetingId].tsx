@@ -222,6 +222,14 @@ function TopicRow({
           style={styles.topicTitle}
           multiline
         />
+        {/* Only a topic that came from a standing subject has a history to gather. */}
+        {topic.subjectId ? (
+          <IconButton
+            name="history"
+            label={`كل ما تقرّر عن ${topic.title}`}
+            onPress={() => router.push(`/board/${boardId}/subject/${topic.subjectId}`)}
+          />
+        ) : null}
         <IconButton name="chevron-up" label="أعلى" onPress={() => move(index - 1)} disabled={index === 0} />
         <IconButton name="chevron-down" label="أسفل" onPress={() => move(index + 1)} disabled={last} />
         <IconButton

@@ -141,7 +141,8 @@ function AgendaSection({ boardId, agenda }: { boardId: string; agenda: AgendaSub
   return (
     <Section title="المحاور الثابتة" icon="layers" right={<Txt style={styles.count}>{agenda.length}</Txt>}>
       <Txt style={styles.note}>
-        ما تعودون إليه كل اجتماع. يبدأ كل اجتماع جديد بها، ويبقى بإمكانك إضافة محاور طارئة داخله.
+        ما تعودون إليه كل اجتماع. يبدأ كل اجتماع جديد بها، ويفتح زرّ السجلّ بجانب كل محور كل ما تقرّر
+        عنه عبر الاجتماعات.
       </Txt>
       <View style={styles.agendaList}>
         {agenda.map((subject, index) => (
@@ -152,6 +153,11 @@ function AgendaSection({ boardId, agenda }: { boardId: string; agenda: AgendaSub
               required
               placeholder="اسم المحور"
               style={styles.agendaTitle}
+            />
+            <IconButton
+              name="history"
+              label={`كل ما تقرّر عن ${subject.title}`}
+              onPress={() => router.push(`/board/${boardId}/subject/${subject.id}`)}
             />
             <IconButton name="chevron-up" label="أعلى" onPress={() => move(subject.id, index - 1)} disabled={index === 0} />
             <IconButton

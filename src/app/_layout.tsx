@@ -68,6 +68,7 @@ export default function RootLayout() {
             <Stack.Screen name="board/[id]/activity" options={{ presentation: 'modal' }} />
             <Stack.Screen name="board/[id]/meetings" options={{ presentation: 'modal' }} />
             <Stack.Screen name="board/[id]/policies" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="board/[id]/subject/[subjectId]" options={{ presentation: 'modal' }} />
             <Stack.Screen name="board/[id]/meeting/[meetingId]" options={{ presentation: 'modal' }} />
             {/* Opened from the home screen widget. */}
             <Stack.Screen name="quick-add" options={{ presentation: 'transparentModal', animation: 'fade' }} />
