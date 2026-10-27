@@ -12,14 +12,15 @@ import { ModalHeader, Section } from '../../../../components/ui/Layout';
 import { Sheet } from '../../../../components/ui/Sheet';
 import { Input, Txt } from '../../../../components/ui/Txt';
 import { addDays, formatLongDate, todayISO } from '../../../../lib/dates';
-import { openBefore } from '../../../../lib/meetings';
+import { filingProgress, isHeld, openBefore } from '../../../../lib/meetings';
 import { uid } from '../../../../lib/ids';
 import { goBack } from '../../../../lib/nav';
 import { OUTCOME_NAMES } from '../../../../lib/activityText';
+import { FilingBar } from '../meetings';
 import { colors } from '../../../../lib/theme';
 import type { IconName } from '../../../../components/ui/iconData';
 import type { Board, Meeting, MeetingTopic, Outcome, OutcomeKind } from '../../../../shared/types';
-import { cardFromOutcome, dispatch, policyFromOutcome } from '../../../../store/actions';
+import { cardFromOutcome, checklistFromOutcome, dispatch, policyFromOutcome } from '../../../../store/actions';
 import { useBoard } from '../../../../store/store';
 
 /** One meeting: when and where it was, who was there, and its agenda. */
@@ -38,7 +39,7 @@ export default function MeetingScreen() {
     );
   }
 
-  const update = (patch: Partial<Pick<Meeting, 'title' | 'date' | 'place'>>) =>
+  const update = (patch: Partial<Pick<Meeting, 'title' | 'date' | 'place' | 'held'>>) =>
     dispatch(id, { type: 'meeting/update', meetingId: meeting.id, patch });
 
   return (
@@ -58,6 +59,7 @@ export default function MeetingScreen() {
             multiline
           />
 
+          <HeldRow board={board} meeting={meeting} onChange={(held) => update({ held })} />
           <WhenSection date={meeting.date} onChange={(date) => update({ date })} />
 
           <Section title="المكان" icon="target">
@@ -85,6 +87,31 @@ export default function MeetingScreen() {
           />
         </ScrollView>
       </AvoidKeyboard>
+    </View>
+  );
+}
+
+/**
+ * Whether it took place, and how much of what it decided has been written down where it is
+ * followed. Two different questions: a meeting can be held and nothing filed, or every decision
+ * filed and none of it done yet.
+ */
+function HeldRow({ board, meeting, onChange }: { board: Board; meeting: Meeting; onChange: (held: boolean) => void }) {
+  const held = isHeld(meeting);
+  const { filed, total } = filingProgress(board, meeting);
+  return (
+    <View style={styles.heldRow}>
+      <Chip
+        label={held ? 'عُقد' : 'لم يُعقد بعد'}
+        icon={held ? 'check' : 'clock'}
+        selected={held}
+        onPress={() => onChange(!held)}
+      />
+      {total > 0 ? (
+        <View style={styles.heldBar}>
+          <FilingBar filed={filed} total={total} />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -419,6 +446,7 @@ function OutcomesSection({ board, meeting }: { board: Board; meeting: Meeting })
 function OutcomeRow({ board, meeting, outcome }: { board: Board; meeting: Meeting; outcome: Outcome }) {
   const [picking, setPicking] = useState(false);
   const [deciding, setDeciding] = useState(false);
+  const [putting, setPutting] = useState(false);
   const isTask = outcome.kind === 'task';
   const hasOwner = HAS_OWNER.includes(outcome.kind);
   const card = outcome.cardId ? board.cards[outcome.cardId] : undefined;
@@ -521,13 +549,23 @@ function OutcomeRow({ board, meeting, outcome }: { board: Board; meeting: Meetin
             // The card was deleted from the board; the minutes still say it was made.
             <Txt style={styles.note}>كانت لها بطاقة، وقد حُذفت من اللوحة.</Txt>
           ) : (
-            <Button
-              title={board.lists.length ? 'حوّلها إلى بطاقة' : 'أضف قائمة أولًا لتحويلها'}
-              icon="kanban"
-              variant="secondary"
-              disabled={board.lists.length === 0}
-              onPress={() => cardFromOutcome(board.id, meeting.id, outcome.id)}
-            />
+            <View style={styles.convertRow}>
+              <Button
+                title={board.lists.length ? 'بطاقة جديدة' : 'أضف قائمة أولًا'}
+                icon="kanban"
+                variant="secondary"
+                disabled={board.lists.length === 0}
+                onPress={() => cardFromOutcome(board.id, meeting.id, outcome.id)}
+              />
+              {/* Not every decision deserves a card of its own. */}
+              <Button
+                title="مهمة في بطاقة"
+                icon="checklist"
+                variant="secondary"
+                disabled={Object.keys(board.cards).length === 0}
+                onPress={() => setPutting(true)}
+              />
+            </View>
           )}
         </>
       ) : null}
@@ -565,6 +603,36 @@ function OutcomeRow({ board, meeting, outcome }: { board: Board; meeting: Meetin
               </Txt>
             </Pressable>
           ))}
+        </ScrollView>
+      </Sheet>
+
+      <Sheet visible={putting} onClose={() => setPutting(false)} title="في أي بطاقة؟">
+        <ScrollView style={styles.sheetList} keyboardShouldPersistTaps="handled">
+          {board.lists.map((list) => {
+            const cards = list.cardIds.map((cid) => board.cards[cid]).filter(Boolean);
+            if (cards.length === 0) return null;
+            return (
+              <View key={list.id}>
+                <Txt style={styles.choiceHead}>{list.title}</Txt>
+                {cards.map((card) => (
+                  <Pressable
+                    key={card.id}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      checklistFromOutcome(board.id, meeting.id, outcome.id, card.id);
+                      setPutting(false);
+                    }}
+                    style={({ pressed }) => [styles.choice, pressed && styles.pressed]}
+                  >
+                    <Icon name="kanban" size={15} color={colors.textSubtle} />
+                    <Txt style={styles.choiceText} numberOfLines={2}>
+                      {card.title}
+                    </Txt>
+                  </Pressable>
+                ))}
+              </View>
+            );
+          })}
         </ScrollView>
       </Sheet>
 
@@ -633,6 +701,9 @@ const styles = StyleSheet.create({
   personNameOn: { color: colors.surface, fontWeight: '700' },
   pressed: { opacity: 0.7 },
   topics: { gap: 12 },
+  heldRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 12 },
+  heldBar: { flex: 1 },
+  convertRow: { flexDirection: 'row-reverse', gap: 8 },
   group: { gap: 8, marginBottom: 14 },
   followHead: { flexDirection: 'row-reverse', alignItems: 'center', gap: 6 },
   followRow: {

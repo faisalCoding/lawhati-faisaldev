@@ -134,8 +134,10 @@ export interface Outcome {
    * week» are dated decisions nobody owes, and forcing them into a task invented an owner.
    */
   due?: string | null;
-  /** `task`: the card made from it, once one has been. Null while it is only written down. */
+  /** `task`: the card made from it, or the card holding it when it became a task inside one. */
   cardId?: string | null;
+  /** `task`: set when it went into `cardId`'s checklist rather than becoming a card of its own. */
+  itemId?: string | null;
   /** `policy`: the standing rule it added or amended, once it has. */
   policyId?: string | null;
   /**
@@ -165,6 +167,15 @@ export interface Meeting {
   /** Who was there, in the order they were added. */
   /** The column it is filed under. Unfiled reads as the first meetings column. */
   columnId?: string | null;
+  /**
+   * Whether it actually took place.
+   *
+   * Absent, it is read from the date — a meeting whose day has passed is taken to have happened,
+   * which is true of every meeting already recorded. It is a flag and not only a date because a
+   * date cannot say «postponed» or «cancelled»: an agenda is posted days before, and a meeting
+   * that never happened would otherwise claim it did the moment its day went by.
+   */
+  held?: boolean;
   attendees: Assignee[];
   topics: MeetingTopic[];
   /** What the meeting decided, in the order it was written down. Older meetings lack it. */
@@ -305,6 +316,7 @@ export type ActivityWhat =
   | { type: 'meeting/title'; meeting: string; from: string }
   | { type: 'meeting/when'; meeting: string; date: string }
   | { type: 'meeting/where'; meeting: string }
+  | { type: 'meeting/held'; meeting: string; held: boolean }
   | { type: 'meeting/remove'; meeting: string; topics: number }
   | { type: 'meeting/attend'; meeting: string; who: string; on: boolean }
   | { type: 'topic/add'; meeting: string; topic: string }
@@ -317,7 +329,7 @@ export type ActivityWhat =
   | { type: 'outcome/kind'; meeting: string; text: string; kind: OutcomeKind }
   | { type: 'outcome/assign'; meeting: string; text: string; to: string | null }
   | { type: 'outcome/due'; meeting: string; text: string; due: string | null }
-  | { type: 'outcome/card'; meeting: string; text: string }
+  | { type: 'outcome/card'; meeting: string; text: string; inside: string | null }
   | { type: 'outcome/remove'; meeting: string; text: string }
   | { type: 'outcome/topic'; meeting: string; text: string; topic: string | null }
   | { type: 'agenda/add'; subject: string }
@@ -400,7 +412,11 @@ export type OpInput =
     }
   | { type: 'check/remove'; cardId: string; itemId: string }
   | { type: 'meeting/add'; meeting: Meeting }
-  | { type: 'meeting/update'; meetingId: string; patch: Partial<Pick<Meeting, 'title' | 'date' | 'place' | 'columnId'>> }
+  | {
+      type: 'meeting/update';
+      meetingId: string;
+      patch: Partial<Pick<Meeting, 'title' | 'date' | 'place' | 'columnId' | 'held'>>;
+    }
   | { type: 'meeting/remove'; meetingId: string }
   /** Puts someone in the room, or takes them out. `person` carries the name to keep. */
   | { type: 'meeting/attend'; meetingId: string; person: Assignee; on: boolean }
@@ -416,7 +432,10 @@ export type OpInput =
       meetingId: string;
       outcomeId: string;
       patch: Partial<
-        Pick<Outcome, 'kind' | 'text' | 'topicId' | 'assignee' | 'due' | 'cardId' | 'policyId' | 'done'>
+        Pick<
+          Outcome,
+          'kind' | 'text' | 'topicId' | 'assignee' | 'due' | 'cardId' | 'itemId' | 'policyId' | 'done'
+        >
       >;
     }
   | { type: 'outcome/remove'; meetingId: string; outcomeId: string }

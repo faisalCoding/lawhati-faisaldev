@@ -124,6 +124,34 @@ export function cardFromOutcome(boardId: string, meetingId: string, outcomeId: s
 }
 
 /**
+ * Puts a meeting's task outcome inside an existing card, as one of its tasks.
+ *
+ * The other half of `cardFromOutcome`. Not every decision deserves a card: «عزام يراجع مع البراء»
+ * belongs under the card for that student, not beside it. The outcome keeps both the card and the
+ * task it became, so the minutes still say where it went and the meeting's progress can see it.
+ */
+export function checklistFromOutcome(
+  boardId: string,
+  meetingId: string,
+  outcomeId: string,
+  cardId: string,
+): string | null {
+  const board = store.get().boards[boardId]?.board;
+  const outcome = board?.meetings?.find((m) => m.id === meetingId)?.outcomes?.find((o) => o.id === outcomeId);
+  if (!board || !outcome || !board.cards[cardId] || outcome.cardId) return null;
+
+  const item = { id: uid(), text: outcome.text, done: false, assignee: outcome.assignee ?? null };
+
+  // The link first, so the activity names the act rather than the task appearing from nowhere.
+  batch(() => {
+    dispatch(boardId, { type: 'outcome/update', meetingId, outcomeId, patch: { cardId, itemId: item.id } });
+    dispatch(boardId, { type: 'check/add', cardId, item });
+  });
+
+  return item.id;
+}
+
+/**
  * Carries a meeting's policy outcome into the board's standing policies — writing a new rule, or
  * replacing the text of one already there when `amends` names it.
  *

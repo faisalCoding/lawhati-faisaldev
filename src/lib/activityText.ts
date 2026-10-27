@@ -121,6 +121,8 @@ export function describeWhat(what: ActivityWhat, n = 1, tasks = 1): string {
       return `تغيير عنوان اجتماع ${q(what.from)} إلى ${q(what.meeting)}`;
     case 'meeting/when':
       return `تغيير موعد اجتماع ${q(what.meeting)} إلى ${formatShortDate(what.date)}`;
+    case 'meeting/held':
+      return `${what.held ? 'تأكيد انعقاد' : 'إلغاء انعقاد'} اجتماع ${q(what.meeting)}`;
     case 'meeting/where':
       return `تغيير مكان اجتماع ${q(what.meeting)}`;
     case 'meeting/remove':
@@ -152,7 +154,7 @@ export function describeWhat(what: ActivityWhat, n = 1, tasks = 1): string {
         ? `تحديد موعد ${q(what.text)} في ${formatShortDate(what.due)}`
         : `إزالة موعد ${q(what.text)}`;
     case 'outcome/card':
-      return `تحويل ${q(what.text)} إلى بطاقة على اللوحة`;
+      return what.inside ? `وضع ${q(what.text)} مهمةً في ${q(what.inside)}` : `تحويل ${q(what.text)} إلى بطاقة على اللوحة`;
     case 'outcome/remove':
       return `حذف توصية ${q(what.text)} من ${q(what.meeting)}`;
     case 'outcome/done':

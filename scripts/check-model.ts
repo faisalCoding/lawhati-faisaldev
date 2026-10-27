@@ -3,7 +3,7 @@
 // project has no test runner, and this needs none — `npm run check:model`, plain assertions, no
 // framework to keep working.
 
-import { isOpen, openBefore } from '../src/lib/meetings';
+import { filingProgress, isFiled, isHeld, isOpen, needsFiling as needsFilingCheck, openBefore } from '../src/lib/meetings';
 import { subjectHistory } from '../src/lib/subjects';
 import { stillApplies, undoOf } from '../src/shared/activity';
 import { applyOp } from '../src/shared/reducer';
@@ -511,6 +511,54 @@ ok('ولا يُنقل اجتماع إلى عمود سياسات', (wrongKind.mee
 roundTripP(cols, op({ type: 'column/remove', columnId: 'k1', moveTo: 'k2' }), 'حذف عمود اجتماعات مع النقل');
 roundTripP(cols, op({ type: 'column/remove', columnId: 'k1' }), 'حذف عمود اجتماعات وما فيه');
 roundTripP(cols, op({ type: 'meeting/update', meetingId: 'n1', patch: { columnId: 'k2' } }), 'نقل اجتماع بين عمودين');
+
+
+// ── عُقد أم لم يُعقد ────────────────────────────────────────────────────────
+const TODAY = '2026-06-15';
+const m = (x: Partial<Meeting>): Meeting => ({ id: 'x', title: 'اج', date: TODAY, attendees: [], topics: [], createdAt: 1, ...x });
+ok('اجتماع مضى يومه يُقرأ منعقدًا', isHeld(m({ date: '2026-06-01' }), TODAY));
+ok('واجتماع اليوم كذلك', isHeld(m({ date: TODAY }), TODAY));
+ok('واجتماع قادم لا', !isHeld(m({ date: '2026-07-01' }), TODAY));
+ok('والعلَم يغلب التاريخ: مؤجَّل مضى يومه', !isHeld(m({ date: '2026-06-01', held: false }), TODAY));
+ok('ومنعقد قبل يومه', isHeld(m({ date: '2026-07-01', held: true }), TODAY));
+
+// ── فُرِّغ أم لم يُفرَّغ ─────────────────────────────────────────────────────
+const withCard: Board = {
+  ...board(),
+  cards: {
+    c1: { id: 'c1', title: 'ب', description: '', labelIds: [], due: null, checklist: [{ id: 'i1', text: 'ت', done: false }], cover: null, createdAt: 1 },
+  },
+  policies: [{ id: 'P', text: 'س', at: 1 }],
+};
+const o = (x: Partial<Outcome>): Outcome => ({ id: 'o', kind: 'task', text: 'ت', ...x }) as Outcome;
+
+ok('الملاحظة لا تُحسب أصلًا', isFiled(o({ kind: 'note' }), withCard) && !needsFilingCheck(o({ kind: 'note' })));
+ok('مهمة بلا بطاقة ولا موعد: غير مُفرَّغة', !isFiled(o({ kind: 'task' }), withCard));
+ok('مهمة ببطاقة بلا موعد: غير مُفرَّغة', !isFiled(o({ kind: 'task', cardId: 'c1' }), withCard));
+ok('مهمة بموعد بلا بطاقة: غير مُفرَّغة', !isFiled(o({ kind: 'task', due: '2026-07-01' }), withCard));
+ok('مهمة ببطاقة وموعد: مُفرَّغة', isFiled(o({ kind: 'task', cardId: 'c1', due: '2026-07-01' }), withCard));
+ok('ومهمة داخل بطاقة كذلك', isFiled(o({ kind: 'task', cardId: 'c1', itemId: 'i1', due: '2026-07-01' }), withCard));
+ok('لكن بندًا حُذف من البطاقة لا', !isFiled(o({ kind: 'task', cardId: 'c1', itemId: 'لا-وجود', due: '2026-07-01' }), withCard));
+ok('وبطاقة حُذفت لا', !isFiled(o({ kind: 'task', cardId: 'لا-وجود', due: '2026-07-01' }), withCard));
+ok('سياسة مُرحَّلة ومؤرَّخة: مُفرَّغة', isFiled(o({ kind: 'policy', policyId: 'P', due: '2026-07-01' }), withCard));
+ok('وسياسة مُرحَّلة بلا تاريخ: لا', !isFiled(o({ kind: 'policy', policyId: 'P' }), withCard));
+
+// الفرق الذي يستحق الوجود: مُفرَّغة ومفتوحة معًا
+const filedOpen = o({ kind: 'task', cardId: 'c1', due: '2026-07-01' });
+ok('المُفرَّغة قد تبقى مفتوحة — وهذا حال كل اجتماع حديث', isFiled(filedOpen, withCard) && isOpen(filedOpen, withCard));
+
+const meetingMixed = m({
+  outcomes: [
+    o({ id: 'a', kind: 'task', cardId: 'c1', due: '2026-07-01' }),
+    o({ id: 'b', kind: 'task' }),
+    o({ id: 'c', kind: 'policy', policyId: 'P', due: '2026-07-01' }),
+    o({ id: 'd', kind: 'note' }),
+    o({ id: 'e', kind: 'announcement' }),
+  ],
+});
+const prog = filingProgress(withCard, meetingMixed);
+ok('الشريط يَعُدّ ما يحتاج تفريغًا وحده', prog.total === 3 && prog.filed === 2);
+ok('واجتماع بلا ما يُفرَّغ لا شريط له', filingProgress(withCard, m({ outcomes: [o({ id: 'z', kind: 'note' })] })).total === 0);
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);

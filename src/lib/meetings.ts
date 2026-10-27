@@ -1,3 +1,4 @@
+import { todayISO } from './dates';
 import { isCardDone } from '../shared/cards';
 import type { Board, Meeting, Outcome } from '../shared/types';
 
@@ -24,6 +25,49 @@ export function isOpen(outcome: Outcome, board: Board): boolean {
   }
   if (outcome.kind === 'policy') return !outcome.policyId;
   return false;
+}
+
+/**
+ * Whether the meeting actually took place.
+ *
+ * The flag when it has been set, otherwise the date: a meeting whose day has passed is taken to
+ * have happened. That is right for everything already written down and wrong only for one that
+ * was postponed — which is exactly what the flag is for.
+ */
+export function isHeld(meeting: Meeting, today = todayISO()): boolean {
+  return meeting.held ?? meeting.date <= today;
+}
+
+/**
+ * Whether a decision has been turned into something that gets followed — not whether it is done.
+ *
+ * These are two different questions and the board answers both. `isOpen` asks «has it happened
+ * yet»; this asks «has anyone written it down where it will be tracked». A task with a card and a
+ * date is filed and still open, and that is the normal state of a meeting a week old.
+ *
+ * A task is filed when it has become a card, or a task inside one, and carries a date. A policy is
+ * filed when it is actually in the standing rules, and dated. The other kinds ask nothing of
+ * anyone and so are never counted — a bar that can never reach the end teaches people to ignore it.
+ */
+export function needsFiling(outcome: Outcome): boolean {
+  return outcome.kind === 'task' || outcome.kind === 'policy';
+}
+
+export function isFiled(outcome: Outcome, board: Board): boolean {
+  if (!needsFiling(outcome)) return true;
+  if (!outcome.due) return false;
+  if (outcome.kind === 'policy') return (board.policies ?? []).some((p) => p.id === outcome.policyId);
+
+  const card = outcome.cardId ? board.cards[outcome.cardId] : undefined;
+  if (!card) return false;
+  // Either it is the card, or it is one task inside it — both put it somewhere that is followed.
+  return !outcome.itemId || card.checklist.some((i) => i.id === outcome.itemId);
+}
+
+/** How much of a meeting's output has been filed. `total` 0 means it asked nothing of anyone. */
+export function filingProgress(board: Board, meeting: Meeting): { filed: number; total: number } {
+  const wanted = (meeting.outcomes ?? []).filter(needsFiling);
+  return { filed: wanted.filter((o) => isFiled(o, board)).length, total: wanted.length };
 }
 
 export interface OpenFromMeeting {

@@ -33,7 +33,7 @@ export const BOARD_FIELDS = ['title', 'color', 'icon', 'buttons'] as const;
 export const LIST_FIELDS = ['title', 'wipLimit'] as const;
 export const CARD_FIELDS = ['title', 'description', 'due', 'dueDone', 'cover', 'link', 'assignees'] as const;
 export const CHECK_FIELDS = ['text', 'done', 'assignee'] as const;
-export const MEETING_FIELDS = ['title', 'date', 'place', 'columnId'] as const;
+export const MEETING_FIELDS = ['title', 'date', 'place', 'columnId', 'held'] as const;
 export const TOPIC_FIELDS = ['title', 'notes'] as const;
 export const OUTCOME_FIELDS = [
   'kind',
@@ -42,6 +42,7 @@ export const OUTCOME_FIELDS = [
   'assignee',
   'due',
   'cardId',
+  'itemId',
   'policyId',
   'done',
 ] as const;
@@ -64,6 +65,10 @@ export function meetingField(meeting: Meeting, key: MeetingField): unknown {
       return meeting.place ?? '';
     case 'columnId':
       return meeting.columnId ?? null;
+    case 'held':
+      // Absent is not false: it means «read it from the date». Undo must put the absence back,
+      // not write a false that would freeze a past meeting as not held.
+      return meeting.held ?? null;
     default:
       return meeting[key];
   }
@@ -80,6 +85,8 @@ export function outcomeField(outcome: Outcome, key: OutcomeField): unknown {
       return outcome.due ?? null;
     case 'cardId':
       return outcome.cardId ?? null;
+    case 'itemId':
+      return outcome.itemId ?? null;
     case 'policyId':
       return outcome.policyId ?? null;
     case 'done':
@@ -171,6 +178,9 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
       if (was.title !== now.title) return { type: 'meeting/title', meeting: now.title, from: was.title };
       if (was.date !== now.date) return { type: 'meeting/when', meeting: now.title, date: now.date };
       if ((was.place ?? '') !== (now.place ?? '')) return { type: 'meeting/where', meeting: now.title };
+      if ((was.held ?? null) !== (now.held ?? null)) {
+        return { type: 'meeting/held', meeting: now.title, held: now.held === true };
+      }
       if ((was.columnId ?? null) !== (now.columnId ?? null)) {
         const column = (after.columns ?? []).find((c) => c.id === now.columnId);
         return { type: 'meeting/file', meeting: now.title, column: column?.title ?? null };
@@ -224,7 +234,9 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
       // A card made from an outcome is the one change worth naming on its own: it is how a
       // recommendation becomes work on the board.
       if ((was.cardId ?? null) !== (now.cardId ?? null) && now.cardId) {
-        return { type: 'outcome/card', meeting: meeting.title, text: now.text };
+        // A card of its own, or a task inside one — the line says which.
+        const inside = now.itemId ? (after.cards[now.cardId]?.title ?? null) : null;
+        return { type: 'outcome/card', meeting: meeting.title, text: now.text, inside };
       }
       if ((was.policyId ?? null) !== (now.policyId ?? null) && now.policyId) {
         // Whether it wrote a new rule or amended one already there — a reader wants to know which.

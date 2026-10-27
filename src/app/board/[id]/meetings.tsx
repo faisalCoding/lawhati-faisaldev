@@ -9,11 +9,12 @@ import { EditableText } from '../../../components/ui/EditableText';
 import { ModalHeader, Section } from '../../../components/ui/Layout';
 import { Input, Txt } from '../../../components/ui/Txt';
 import { formatLongDate, todayISO } from '../../../lib/dates';
+import { filingProgress, isHeld } from '../../../lib/meetings';
 import { uid } from '../../../lib/ids';
 import { goBack } from '../../../lib/nav';
 import { pluralTopics } from '../../../lib/text';
 import { colors } from '../../../lib/theme';
-import type { AgendaSubject, Meeting } from '../../../shared/types';
+import type { AgendaSubject, Board, Meeting } from '../../../shared/types';
 import { dispatch, startMeeting } from '../../../store/actions';
 import { useBoard } from '../../../store/store';
 
@@ -90,7 +91,7 @@ export default function MeetingsScreen() {
               </Txt>
             </View>
           ) : (
-            meetings.map((meeting) => <Row key={meeting.id} boardId={id} meeting={meeting} />)
+            meetings.map((meeting) => <Row key={meeting.id} board={board} meeting={meeting} />)
           )}
 
           <AgendaSection boardId={id} agenda={agenda} />
@@ -100,25 +101,57 @@ export default function MeetingsScreen() {
   );
 }
 
-function Row({ boardId, meeting }: { boardId: string; meeting: Meeting }) {
+function Row({ board, meeting }: { board: Board; meeting: Meeting }) {
   const attendees = meeting.attendees.length;
+  const held = isHeld(meeting);
+  const { filed, total } = filingProgress(board, meeting);
+
   return (
     <Pressable
-      onPress={() => router.push(`/board/${boardId}/meeting/${meeting.id}`)}
+      onPress={() => router.push(`/board/${board.id}/meeting/${meeting.id}`)}
       accessibilityRole="button"
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
       <View style={styles.rowBody}>
-        <Txt style={styles.rowTitle} numberOfLines={2}>
-          {meeting.title}
-        </Txt>
+        <View style={styles.rowTop}>
+          <Txt style={styles.rowTitle} numberOfLines={2}>
+            {meeting.title}
+          </Txt>
+          <View style={[styles.held, held ? styles.heldOn : styles.heldOff]}>
+            <Txt style={[styles.heldText, held ? styles.heldTextOn : styles.heldTextOff]}>
+              {held ? 'عُقد' : 'لم يُعقد'}
+            </Txt>
+          </View>
+        </View>
+
         <Txt style={styles.rowMeta}>
           {formatLongDate(meeting.date)} · {pluralTopics(meeting.topics.length)}
           {attendees ? ` · ${attendees} من الحضور` : ''}
         </Txt>
+
+        {/* How much of what it decided has been written down where it gets followed. Absent when
+            the meeting asked nothing of anyone — a bar at zero that can never move is noise. */}
+        {total > 0 ? <FilingBar filed={filed} total={total} /> : null}
       </View>
       <Icon name="chevron-left" size={18} color={colors.textSubtle} />
     </Pressable>
+  );
+}
+
+/** Not «how much is done» — «how much has been turned into something that gets followed». */
+export function FilingBar({ filed, total }: { filed: number; total: number }) {
+  const done = filed === total;
+  return (
+    <View style={styles.bar}>
+      <View style={styles.barTrack}>
+        <View
+          style={[styles.barFill, { width: `${Math.round((filed / total) * 100)}%` }, done && styles.barFillDone]}
+        />
+      </View>
+      <Txt style={[styles.barText, done && styles.barTextDone]}>
+        {done ? 'فُرِّغ كاملًا' : `فُرِّغ ${filed} من ${total}`}
+      </Txt>
+    </View>
   );
 }
 
@@ -207,7 +240,20 @@ const styles = StyleSheet.create({
   },
   pressed: { opacity: 0.7 },
   rowBody: { flex: 1, gap: 4 },
-  rowTitle: { fontSize: 15, fontWeight: '700' },
+  rowTop: { flexDirection: 'row-reverse', alignItems: 'flex-start', gap: 8 },
+  rowTitle: { flex: 1, fontSize: 15, fontWeight: '700' },
+  held: { paddingVertical: 2, paddingHorizontal: 7, borderRadius: 6 },
+  heldOn: { backgroundColor: colors.successBg },
+  heldOff: { backgroundColor: colors.list },
+  heldText: { fontSize: 11, fontWeight: '700' },
+  heldTextOn: { color: colors.success },
+  heldTextOff: { color: colors.textFaint },
+  bar: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8, marginTop: 6 },
+  barTrack: { flex: 1, height: 5, borderRadius: 3, backgroundColor: colors.list, overflow: 'hidden' },
+  barFill: { height: 5, borderRadius: 3, backgroundColor: colors.warning },
+  barFillDone: { backgroundColor: colors.success },
+  barText: { fontSize: 11, color: colors.textFaint },
+  barTextDone: { color: colors.success, fontWeight: '700' },
   rowMeta: { fontSize: 12.5, color: colors.textSubtle },
   agendaHint: { fontSize: 12.5, color: colors.textFaint, paddingHorizontal: 2 },
   policiesLink: {
