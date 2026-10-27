@@ -178,7 +178,9 @@ export function checklistFromOutcome(
   const outcome = board?.meetings?.find((m) => m.id === meetingId)?.outcomes?.find((o) => o.id === outcomeId);
   if (!board || !outcome || !board.cards[cardId] || outcome.cardId) return null;
 
-  const item = { id: uid(), text: outcome.text, done: false, assignee: outcome.assignee ?? null };
+  // Carries its date as well as its owner: a task inside a card has its own, and the outcome
+  // is not counted as moved on without one.
+  const item = { id: uid(), text: outcome.text, done: false, assignee: outcome.assignee ?? null, due: outcome.due ?? null };
 
   // The link first, so the activity names the act rather than the task appearing from nowhere.
   batch(() => {

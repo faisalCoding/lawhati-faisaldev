@@ -87,6 +87,10 @@ export function describeWhat(what: ActivityWhat, n = 1, tasks = 1): string {
       return `${what.done ? 'إنجاز' : 'إلغاء إنجاز'} مهمة ${q(what.task)} في ${q(what.card)}`;
     case 'task/edit':
       return `تعديل مهمة ${q(what.from)} إلى ${q(what.task)} في ${q(what.card)}`;
+    case 'task/due':
+      return what.due
+        ? `تحديد موعد مهمة ${q(what.task)} في ${formatShortDate(what.due)}`
+        : `إزالة موعد مهمة ${q(what.task)}`;
     case 'task/assign':
       return what.to
         ? `إسناد مهمة ${q(what.task)} في ${q(what.card)} إلى ${what.to}`

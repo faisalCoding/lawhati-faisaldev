@@ -24,6 +24,13 @@ export interface ChecklistItem {
   done: boolean;
   /** Who does this task. Older items lack it. */
   assignee?: Assignee | null;
+  /**
+   * When it is due, in YYYY-MM-DD form, like a card's.
+   *
+   * A card often stands for a week of work and the tasks inside it fall on different days; one
+   * date on the card could only ever be the latest of them. Older items lack it.
+   */
+  due?: string | null;
 }
 
 export interface Card {
@@ -321,6 +328,7 @@ export type ActivityWhat =
   | { type: 'task/done'; card: string; task: string; done: boolean }
   | { type: 'task/edit'; card: string; task: string; from: string }
   | { type: 'task/assign'; card: string; task: string; to: string | null }
+  | { type: 'task/due'; card: string; task: string; due: string | null }
   | { type: 'task/remove'; card: string; task: string }
   | { type: 'list/add'; list: string }
   | { type: 'list/title'; list: string; from: string }
@@ -431,7 +439,7 @@ export type OpInput =
       type: 'check/update';
       cardId: string;
       itemId: string;
-      patch: Partial<Pick<ChecklistItem, 'text' | 'done' | 'assignee'>>;
+      patch: Partial<Pick<ChecklistItem, 'text' | 'done' | 'assignee' | 'due'>>;
     }
   | { type: 'check/remove'; cardId: string; itemId: string }
   | { type: 'meeting/add'; meeting: Meeting }

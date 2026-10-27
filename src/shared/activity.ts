@@ -32,7 +32,7 @@ const MAX_HELD_CARDS = 600;
 export const BOARD_FIELDS = ['title', 'color', 'icon', 'buttons'] as const;
 export const LIST_FIELDS = ['title', 'wipLimit'] as const;
 export const CARD_FIELDS = ['title', 'description', 'due', 'dueDone', 'cover', 'link', 'assignees'] as const;
-export const CHECK_FIELDS = ['text', 'done', 'assignee'] as const;
+export const CHECK_FIELDS = ['text', 'done', 'assignee', 'due'] as const;
 export const MEETING_FIELDS = ['title', 'date', 'place', 'columnId', 'held'] as const;
 export const TOPIC_FIELDS = ['title', 'notes'] as const;
 export const OUTCOME_FIELDS = [
@@ -417,6 +417,9 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
       const now = card?.checklist.find((i) => i.id === op.itemId);
       if (!card || !was || !now) return null;
       if (was.done !== now.done) return { type: 'task/done', card: card.title, task: now.text, done: now.done };
+      if (!same(was.due, now.due)) {
+        return { type: 'task/due', card: card.title, task: now.text, due: now.due ?? null };
+      }
       if (!same(was.assignee, now.assignee)) {
         return { type: 'task/assign', card: card.title, task: now.text, to: now.assignee?.name ?? null };
       }

@@ -207,6 +207,12 @@ const strip = (b: Board) =>
     ...b,
     activity: undefined,
     updatedAt: 0,
+    cards: Object.fromEntries(
+      Object.entries(b.cards).map(([id, c]) => [
+        id,
+        { ...c, checklist: c.checklist.map((t) => ({ ...t, assignee: t.assignee ?? null, due: t.due ?? null })) },
+      ]),
+    ),
     meetings: (b.meetings ?? []).map((m) => ({
       ...m,
       place: m.place ?? '',
@@ -585,6 +591,37 @@ ok(
 const erased = applyOp(reg, op({ type: 'policy/remove', policyId: 'h1' }));
 const brought = applyOp(erased, op({ type: 'policy/add', policy: (reg.policies ?? [])[0] }));
 ok('وإعادة المحذوفة تُبقي سجلّها كما كان', log(brought, 'h1').length === 2);
+
+
+// ── موعد المهمة داخل البطاقة ───────────────────────────────────────────────
+const cardBoard: Board = {
+  ...board(),
+  lists: [{ id: 'L', title: 'للتنفيذ', cardIds: ['K'], wipLimit: null }],
+  cards: { K: { id: 'K', title: 'بطاقة', description: '', labelIds: [], due: null, checklist: [], cover: null, createdAt: 1 } },
+};
+let tasked = applyOp(cardBoard, op({ type: 'check/add', cardId: 'K', item: { id: 't', text: 'مهمة', done: false } }));
+ok('المهمة تُضاف بلا موعد', (tasked.cards.K.checklist[0].due ?? null) === null);
+
+tasked = applyOp(tasked, op({ type: 'check/update', cardId: 'K', itemId: 't', patch: { due: '2026-08-08' } }));
+ok('ويُقبل لها موعد مستقلّ عن البطاقة', tasked.cards.K.checklist[0].due === '2026-08-08');
+ok('وبطاقتها تبقى بلا موعد', tasked.cards.K.due === null);
+ok('ويُسجَّل سطرًا خاصًّا', tasked.activity?.at(-1)?.what.type === 'task/due');
+ok(
+  'ونفس الموعد لا يغيّر شيئًا',
+  applyOp(tasked, op({ type: 'check/update', cardId: 'K', itemId: 't', patch: { due: '2026-08-08' } })) === tasked,
+);
+ok(
+  'ويُزال',
+  (applyOp(tasked, op({ type: 'check/update', cardId: 'K', itemId: 't', patch: { due: null } })).cards.K.checklist[0]
+    .due ?? null) === null,
+);
+
+roundTrip(tasked, op({ type: 'check/update', cardId: 'K', itemId: 't', patch: { due: '2026-09-09' } }), 'تغيير موعد مهمة');
+roundTrip(
+  cardBoard,
+  op({ type: 'check/add', cardId: 'K', item: { id: 'u', text: 'م', done: false, due: '2026-08-08' } }),
+  'إضافة مهمة بموعد',
+);
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);

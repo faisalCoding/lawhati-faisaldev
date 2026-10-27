@@ -1,7 +1,7 @@
 import { memo, type ComponentRef, type RefObject } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { describeDue } from '../../lib/dates';
+import { describeDistance, describeDue } from '../../lib/dates';
 import { boardProgress } from '../../lib/progress';
 import { colors } from '../../lib/theme';
 import { isCardDone } from '../../shared/cards';
@@ -157,9 +157,22 @@ export const CardFace = memo(function CardFace({
                 >
                   <CheckCircle done={item.done} size={18} />
                 </View>
-                <Txt style={[styles.taskText, item.done && styles.taskDone]} numberOfLines={3}>
-                  {item.text}
-                </Txt>
+                <View style={styles.taskBody}>
+                  <Txt style={[styles.taskText, item.done && styles.taskDone]} numberOfLines={3}>
+                    {item.text}
+                  </Txt>
+                  {/* Its own date, not the card's: a card is often a week and its tasks are days. */}
+                  {item.due ? (
+                    <Txt
+                      style={[
+                        styles.taskDue,
+                        !item.done && describeDue(item.due).tone === 'overdue' && styles.taskDueLate,
+                      ]}
+                    >
+                      {describeDistance(item.due)}
+                    </Txt>
+                  ) : null}
+                </View>
                 {item.assignee ? <Avatar person={item.assignee} size={20} /> : null}
               </View>
             ))}
@@ -305,6 +318,9 @@ const styles = StyleSheet.create({
   task: { flexDirection: 'row-reverse', alignItems: 'center', gap: 2 },
   // Reaches the card's edge, so the circle is easy to hit; the rest of the row edits the task.
   taskCheck: { paddingVertical: 5, paddingLeft: 6, paddingRight: 12, marginRight: -12 },
+  taskBody: { flex: 1, gap: 1 },
+  taskDue: { fontSize: 10.5, color: colors.textFaint },
+  taskDueLate: { color: colors.danger, fontWeight: '700' },
   taskText: { flex: 1, fontSize: 13, paddingVertical: 4 },
   taskDone: { color: colors.textFaint, textDecorationLine: 'line-through' },
   addTask: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8, paddingVertical: 6 },

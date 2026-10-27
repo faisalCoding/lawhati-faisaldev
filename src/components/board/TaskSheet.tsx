@@ -1,12 +1,13 @@
 import { useRef, useState } from 'react';
 import { Platform, StyleSheet, View, type TextInput } from 'react-native';
 
+import { addDays, describeDistance, formatLongDate, todayISO } from '../../lib/dates';
 import { uid } from '../../lib/ids';
 import { pluralTasks } from '../../lib/text';
 import { colors } from '../../lib/theme';
-import type { Board } from '../../shared/types';
+import type { Board, ChecklistItem } from '../../shared/types';
 import { dispatch } from '../../store/actions';
-import { Button } from '../ui/Buttons';
+import { Button, Chip, IconButton } from '../ui/Buttons';
 import { useModalAutoFocus } from '../ui/Keyboard';
 import { PromptForm } from '../ui/Sheet';
 import { Input, Txt } from '../ui/Txt';
@@ -53,6 +54,8 @@ export function TaskSheet({
         }}
         onCancel={onClose}
       />
+      <TaskDue board={board} cardId={cardId} item={item} />
+
       <Button
         title="حذف المهمة"
         icon="trash"
@@ -62,6 +65,39 @@ export function TaskSheet({
           onClose();
         }}
       />
+    </View>
+  );
+}
+
+/**
+ * When this one task is due.
+ *
+ * A card often stands for a week of work, and one date on it could only ever be the latest of the
+ * tasks inside. Each task carries its own.
+ */
+function TaskDue({ board, cardId, item }: { board: Board; cardId: string; item: ChecklistItem }) {
+  const today = todayISO();
+  const set = (due: string | null) =>
+    dispatch(board.id, { type: 'check/update', cardId, itemId: item.id, patch: { due } });
+
+  return (
+    <View style={styles.due}>
+      {item.due ? (
+        <View style={styles.dueRow}>
+          <IconButton name="chevron-right" label="اليوم السابق" onPress={() => set(addDays(item.due!, -1))} />
+          <View style={styles.dueBox}>
+            <Txt style={styles.dueText}>{formatLongDate(item.due)}</Txt>
+            <Txt style={styles.dueHint}>{describeDistance(item.due)}</Txt>
+          </View>
+          <IconButton name="chevron-left" label="اليوم التالي" onPress={() => set(addDays(item.due!, 1))} />
+        </View>
+      ) : null}
+      <View style={styles.dueChips}>
+        <Chip label="اليوم" selected={item.due === today} onPress={() => set(today)} />
+        <Chip label="غدًا" selected={item.due === addDays(today, 1)} onPress={() => set(addDays(today, 1))} />
+        <Chip label="بعد أسبوع" selected={item.due === addDays(today, 7)} onPress={() => set(addDays(today, 7))} />
+        {item.due ? <Chip label="إزالة الموعد" icon="close" onPress={() => set(null)} /> : null}
+      </View>
     </View>
   );
 }
@@ -111,4 +147,10 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row-reverse', gap: 10 },
   flex: { flex: 1 },
   muted: { fontSize: 13, color: colors.textFaint },
+  due: { gap: 8 },
+  dueRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8 },
+  dueBox: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 10, backgroundColor: colors.list },
+  dueText: { fontSize: 14.5, fontWeight: '700' },
+  dueHint: { fontSize: 11.5, color: colors.textSubtle },
+  dueChips: { flexDirection: 'row-reverse', flexWrap: 'wrap', gap: 8 },
 });
