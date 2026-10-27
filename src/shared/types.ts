@@ -202,15 +202,32 @@ export interface BoardColumn {
   kind: BoardColumnKind;
 }
 
+/** One thing that happened to a standing rule, kept with the rule itself. */
+export interface PolicyEvent {
+  at: number;
+  /** Who did it, as the board's activity records it. Null when nobody was named. */
+  by?: Actor | null;
+  kind: 'added' | 'edited' | 'repealed' | 'restored';
+  /** `edited`: the wording it replaced. `added`: the wording it began with. */
+  text?: string;
+  /** The meeting it came out of, when it came from one. */
+  meetingId?: string | null;
+}
+
 /**
  * One standing rule this board works by.
  *
  * Nearly half of what real meetings here produce reads this way: a limit, a procedure, who decides
  * what. They are the lasting output, and the reason the minutes are worth keeping at all.
  *
- * There is no «repealed» state. A policy's history is the board's activity log, which already says
- * who changed what and when; a second record of the same thing would be one more thing to keep
- * true. A policy that no longer holds is removed, and the log still has it.
+ * Each rule carries its own history. The board's activity log was supposed to be that record and
+ * cannot be: it keeps the last hundred entries and drops the rest, so a rule set in September and
+ * amended in October would quietly lose the September line. A rule people are held to has to be
+ * able to say when it started and what it used to say.
+ *
+ * And a repealed rule is kept, not deleted. «What did we decide about this, and when did it stop
+ * applying» is a question about rules that no longer apply, and deleting the row destroys the only
+ * thing that could answer it.
  */
 export interface Policy {
   id: string;
@@ -220,6 +237,10 @@ export interface Policy {
   /** The meeting it came out of, when it came from one rather than being written down directly. */
   meetingId?: string | null;
   at: number;
+  /** When it stopped applying. A repealed rule leaves the board but keeps its record. */
+  repealedAt?: number | null;
+  /** Everything that has happened to it, oldest first. Older boards lack it. */
+  history?: PolicyEvent[];
 }
 
 export interface Board {
@@ -345,6 +366,8 @@ export type ActivityWhat =
   | { type: 'policy/text'; policy: string; from: string }
   | { type: 'policy/file'; policy: string; column: string | null }
   | { type: 'policy/move'; policy: string }
+  | { type: 'policy/repeal'; policy: string }
+  | { type: 'policy/restore'; policy: string }
   | { type: 'policy/remove'; policy: string }
   | { type: 'outcome/policy'; meeting: string; text: string; added: boolean }
   | { type: 'outcome/done'; meeting: string; text: string; done: boolean };
@@ -454,6 +477,15 @@ export type OpInput =
   | { type: 'policy/add'; policy: Policy; index?: number }
   | { type: 'policy/update'; policyId: string; patch: Partial<Pick<Policy, 'text' | 'columnId' | 'meetingId'>> }
   | { type: 'policy/move'; policyId: string; toIndex: number }
+  /**
+   * Repeals it: it leaves the board and keeps its record.
+   *
+   * `since` is when it stopped applying, and defaults to now. Undoing a restore passes the date
+   * it stopped the first time — otherwise the rule would claim it lapsed on the day of the undo.
+   */
+  | { type: 'policy/repeal'; policyId: string; since?: number }
+  | { type: 'policy/restore'; policyId: string }
+  /** Erases it and its record. Only for something written by mistake. */
   | { type: 'policy/remove'; policyId: string };
 
 /** How an operation is recorded in the board's activity. */

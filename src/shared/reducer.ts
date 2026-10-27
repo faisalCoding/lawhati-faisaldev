@@ -15,7 +15,7 @@ import {
   same,
   TOPIC_FIELDS,
 } from './activity';
-import type { Board, Card, List, Meeting, MeetingTopic, Op } from './types';
+import type { Board, Card, List, Meeting, MeetingTopic, Op, Policy, PolicyEvent } from './types';
 
 // Pure, deterministic board reducer. The app applies operations optimistically and
 // the sync server applies the same operations in its own order, so both must agree.
@@ -63,6 +63,11 @@ function updateCard(board: Board, cardId: string, fn: (card: Card) => Card): Boa
   const next = fn(card);
   if (next === card) return board;
   return { ...board, cards: { ...board.cards, [cardId]: next } };
+}
+
+/** A policy with one more line in its record. */
+function noted(policy: Policy, event: PolicyEvent): Policy {
+  return { ...policy, history: [...(policy.history ?? []), event] };
 }
 
 function updateMeeting(board: Board, meetingId: string, fn: (meeting: Meeting) => Meeting): Board {
@@ -404,7 +409,21 @@ function reduce(board: Board, op: Op): Board {
     case 'policy/add': {
       const policies = board.policies ?? [];
       if (policies.some((x) => x.id === op.policy.id)) return board;
-      return { ...board, policies: insertAt(policies, op.index ?? policies.length, op.policy) };
+      // Its record starts here, from the operation itself: the same `at` and `by` every device
+      // and the server see, so the history is identical everywhere without being sent twice.
+      //
+      // Unless it already has one. Then this is an undo putting a rule back, and a second «added»
+      // line would have the record claim it was written twice.
+      const born = op.policy.history?.length
+        ? op.policy
+        : noted(op.policy, {
+            at: op.at,
+            by: op.by ?? null,
+            kind: 'added',
+            text: op.policy.text,
+            meetingId: op.policy.meetingId ?? null,
+          });
+      return { ...board, policies: insertAt(policies, op.index ?? policies.length, born) };
     }
 
     case 'policy/update': {
@@ -414,8 +433,36 @@ function reduce(board: Board, op: Op): Board {
       const patch = pick(op.patch, POLICY_FIELDS);
       const keys = Object.keys(patch) as (keyof typeof patch)[];
       if (keys.every((key) => same(patch[key], policyField(policies[index], key)))) return board;
+      const was = policies[index];
       const next = policies.slice();
-      next[index] = { ...next[index], ...patch };
+      next[index] = { ...was, ...patch };
+      // Only a change of wording is worth a line. Refiling it under another column is not what
+      // anyone means by «what did this rule used to say».
+      if (patch.text !== undefined && patch.text !== was.text) {
+        next[index] = noted(next[index], {
+          at: op.at,
+          by: op.by ?? null,
+          kind: 'edited',
+          text: was.text,
+          meetingId: patch.meetingId ?? was.meetingId ?? null,
+        });
+      }
+      return { ...board, policies: next };
+    }
+
+    case 'policy/repeal':
+    case 'policy/restore': {
+      const policies = board.policies ?? [];
+      const index = policies.findIndex((x) => x.id === op.policyId);
+      if (index < 0) return board;
+      const repealing = op.type === 'policy/repeal';
+      if (repealing === ((policies[index].repealedAt ?? null) !== null)) return board;
+      const next = policies.slice();
+      const since = repealing && op.type === 'policy/repeal' ? (op.since ?? op.at) : null;
+      next[index] = noted(
+        { ...next[index], repealedAt: since },
+        { at: op.at, by: op.by ?? null, kind: repealing ? 'repealed' : 'restored' },
+      );
       return { ...board, policies: next };
     }
 

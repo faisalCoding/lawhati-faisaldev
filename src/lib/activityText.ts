@@ -188,6 +188,10 @@ export function describeWhat(what: ActivityWhat, n = 1, tasks = 1): string {
       return what.column ? `نقل سياسة ${q(what.policy)} إلى ${q(what.column)}` : `إخراج سياسة ${q(what.policy)} من عمودها`;
     case 'policy/move':
       return `ترتيب سياسة ${q(what.policy)}`;
+    case 'policy/repeal':
+      return `إلغاء العمل بسياسة ${q(what.policy)}`;
+    case 'policy/restore':
+      return `إعادة العمل بسياسة ${q(what.policy)}`;
     case 'policy/remove':
       return `حذف سياسة ${q(what.policy)}`;
     case 'outcome/policy':

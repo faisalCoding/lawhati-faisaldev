@@ -325,6 +325,14 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
       const policy = (after.policies ?? []).find((x) => x.id === op.policyId);
       return policy ? { type: 'policy/move', policy: policy.text } : null;
     }
+    case 'policy/repeal': {
+      const policy = (after.policies ?? []).find((x) => x.id === op.policyId);
+      return policy ? { type: 'policy/repeal', policy: policy.text } : null;
+    }
+    case 'policy/restore': {
+      const policy = (after.policies ?? []).find((x) => x.id === op.policyId);
+      return policy ? { type: 'policy/restore', policy: policy.text } : null;
+    }
     case 'policy/remove': {
       const policy = (before.policies ?? []).find((x) => x.id === op.policyId);
       return policy ? { type: 'policy/remove', policy: policy.text } : null;
@@ -599,6 +607,13 @@ export function undoOf(before: Board, after: Board, op: Op): UndoStep[] {
     case 'policy/move': {
       const from = (before.policies ?? []).findIndex((x) => x.id === op.policyId);
       return from < 0 ? [] : [{ op: { type: 'policy/move', policyId: op.policyId, toIndex: from } }];
+    }
+    case 'policy/repeal':
+      return [{ op: { type: 'policy/restore', policyId: op.policyId } }];
+    case 'policy/restore': {
+      // Back to the date it stopped applying, not the date of the undo.
+      const was = (before.policies ?? []).find((x) => x.id === op.policyId);
+      return [{ op: { type: 'policy/repeal', policyId: op.policyId, since: was?.repealedAt ?? undefined } }];
     }
     case 'policy/remove': {
       const policies = before.policies ?? [];
@@ -948,6 +963,13 @@ export function stillApplies(board: Board, step: UndoStep): OpInput | null {
     case 'policy/move':
     case 'policy/remove':
       return (board.policies ?? []).some((x) => x.id === op.policyId) ? op : null;
+    case 'policy/repeal':
+    case 'policy/restore': {
+      const policy = (board.policies ?? []).find((x) => x.id === op.policyId);
+      if (!policy) return null;
+      // Already the way the undo would leave it — someone changed it again since.
+      return ((policy.repealedAt ?? null) !== null) === (op.type === 'policy/restore') ? op : null;
+    }
     case 'policy/update': {
       const policy = (board.policies ?? []).find((x) => x.id === op.policyId);
       const patch = policy ? kept(op.patch, (k) => policyField(policy, k as PolicyField)) : null;

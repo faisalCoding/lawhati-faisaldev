@@ -2,12 +2,12 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { formatLongDate, todayISO } from '../../lib/dates';
+import { formatLongDate, toISODate, todayISO } from '../../lib/dates';
 import { uid } from '../../lib/ids';
 import { isHeld, movedProgress } from '../../lib/meetings';
 import { pluralPolicies, pluralTopics } from '../../lib/text';
 import { colors, LIST_GAP, LIST_WIDTH } from '../../lib/theme';
-import type { Board, BoardColumn, Meeting, Policy } from '../../shared/types';
+import type { Board, BoardColumn, Meeting, Policy, PolicyEvent } from '../../shared/types';
 import { dispatch, startMeeting } from '../../store/actions';
 import { Icon, IconButton } from '../ui/Buttons';
 import { ActionList, Sheet, type SheetAction } from '../ui/Sheet';
@@ -46,7 +46,8 @@ export function RecordColumn({
   const items =
     column.kind === 'meetings'
       ? mine(board.meetings ?? [], column, board)
-      : mine(board.policies ?? [], column, board);
+      // A repealed rule leaves the board and keeps its record; it is read from its own history.
+      : mine((board.policies ?? []).filter((x) => !x.repealedAt), column, board);
 
   const menu: SheetAction[] = [{ label: 'إعادة التسمية', icon: 'pencil', onPress: () => setSheet('rename') }];
   if (column.kind === 'meetings') {
@@ -539,14 +540,57 @@ function EditPolicy({ board, policy, onDone }: { board: Board; policy: Policy; o
       <Pressable
         accessibilityRole="button"
         onPress={() => {
-          dispatch(board.id, { type: 'policy/remove', policyId: policy.id });
+          dispatch(board.id, { type: 'policy/repeal', policyId: policy.id });
           onDone();
         }}
         style={({ pressed }) => [styles.removeChoice, pressed && styles.pressed]}
       >
-        <Icon name="trash" size={16} color={colors.danger} />
-        <Txt style={styles.removeDelete}>حذف السياسة</Txt>
+        <Icon name="archive" size={16} color={colors.danger} />
+        <Txt style={styles.removeDelete}>إلغاء العمل بها</Txt>
       </Pressable>
+      <Txt style={styles.removeWarn}>تخرج من اللوحة ويبقى سجلّها.</Txt>
+
+      <PolicyHistory policy={policy} />
+    </View>
+  );
+}
+
+const EVENT_WORDS: Record<PolicyEvent['kind'], string> = {
+  added: 'أُقرّت',
+  edited: 'عُدّلت',
+  repealed: 'أُلغي العمل بها',
+  restored: 'أُعيد العمل بها',
+};
+
+/**
+ * Everything that has happened to this rule, newest first.
+ *
+ * It lives on the rule and not in the board's activity, which keeps the last hundred entries and
+ * drops the rest — a rule set in September and amended in October would have lost September.
+ */
+function PolicyHistory({ policy }: { policy: Policy }) {
+  const history = [...(policy.history ?? [])].reverse();
+  if (history.length === 0) return null;
+
+  return (
+    <View style={styles.history}>
+      <Txt style={styles.historyHead}>السجلّ</Txt>
+      {history.map((event, i) => (
+        <View key={`${event.at}-${i}`} style={styles.historyRow}>
+          <Txt style={styles.historyWhen}>{formatLongDate(toISODate(new Date(event.at)))}</Txt>
+          <View style={styles.historyBody}>
+            <Txt style={styles.historyWhat}>
+              {EVENT_WORDS[event.kind]}
+              {event.by?.name ? ` — ${event.by.name}` : ''}
+            </Txt>
+            {event.kind === 'edited' && event.text ? (
+              <Txt style={styles.historyWas} numberOfLines={3}>
+                كانت: {event.text}
+              </Txt>
+            ) : null}
+          </View>
+        </View>
+      ))}
     </View>
   );
 }
@@ -680,4 +724,11 @@ const styles = StyleSheet.create({
   removeDanger: { backgroundColor: colors.danger },
   removeDangerText: { flex: 1, fontSize: 14, fontWeight: '700', color: colors.surface },
   removeWarn: { fontSize: 12, color: colors.textFaint, textAlign: 'center' },
+  history: { gap: 6, marginTop: 6, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border },
+  historyHead: { fontSize: 12, fontWeight: '700', color: colors.textSubtle },
+  historyRow: { flexDirection: 'row-reverse', alignItems: 'flex-start', gap: 10 },
+  historyWhen: { width: 96, fontSize: 11, color: colors.textFaint },
+  historyBody: { flex: 1, gap: 2 },
+  historyWhat: { fontSize: 12.5 },
+  historyWas: { fontSize: 11.5, color: colors.textFaint, lineHeight: 21 },
 });

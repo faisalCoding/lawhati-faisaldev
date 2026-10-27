@@ -225,6 +225,11 @@ const strip = (b: Board) =>
       ...x,
       columnId: x.columnId ?? null,
       meetingId: x.meetingId ?? null,
+      repealedAt: x.repealedAt ?? null,
+      // Left out on purpose. The record is append-only and an undo is a thing that happened to
+      // the rule, so undoing a repeal truthfully leaves a «restored» line behind. The record is
+      // checked on its own.
+      history: undefined,
     })),
   });
 
@@ -539,6 +544,47 @@ const meetingMixed = m({
 const prog = movedProgress(withCards, meetingMixed);
 ok('الشريط يَعُدّ ما يُرحَّل وحده', prog.total === 3 && prog.moved === 2);
 ok('واجتماع لا شيء فيه يُرحَّل لا شريط له', movedProgress(withCards, m({ outcomes: [open({ id: 'z', kind: 'note' })] })).total === 0);
+
+
+// ── سجلّ السياسة ────────────────────────────────────────────────────────────
+const log = (b: Board, id: string) => (b.policies ?? []).find((x) => x.id === id)?.history ?? [];
+let reg = applyOp(board(), op({ type: 'policy/add', policy: policy('h1', 'حد التأخر بلا عذر') }));
+ok('السياسة تُولد ولها سطر في سجلّها', log(reg, 'h1').length === 1 && log(reg, 'h1')[0].kind === 'added');
+ok('ويحفظ نصّها الأول', log(reg, 'h1')[0].text === 'حد التأخر بلا عذر');
+
+reg = applyOp(reg, op({ type: 'policy/update', policyId: 'h1', patch: { text: 'يمكن تعويض تأخّرات الأسبوع نفسه' } }));
+ok('والتعديل يُضيف سطرًا', log(reg, 'h1').length === 2 && log(reg, 'h1')[1].kind === 'edited');
+ok('يحفظ ما كانت عليه', log(reg, 'h1')[1].text === 'حد التأخر بلا عذر');
+
+// نقلها بين الأعمدة ليس تعديلًا على نصّها
+const refiledPolicy = applyOp(reg, op({ type: 'policy/update', policyId: 'h1', patch: { columnId: 'c9' } }));
+ok('ونقلها بين الأعمدة لا يُلوّث السجلّ', log(refiledPolicy, 'h1').length === 2);
+
+const repealed = applyOp(reg, op({ type: 'policy/repeal', policyId: 'h1' }));
+ok('الإلغاء يُؤرَّخ', (repealed.policies ?? [])[0].repealedAt === (repealed.activity?.at(-1)?.at ?? 0));
+ok('ويُضيف سطرًا', log(repealed, 'h1').at(-1)?.kind === 'repealed');
+ok('والسياسة باقية لا محذوفة', (repealed.policies ?? []).length === 1);
+ok('وإلغاؤها مرتين لا يفعل شيئًا', applyOp(repealed, op({ type: 'policy/repeal', policyId: 'h1' })) === repealed);
+
+const back = applyOp(repealed, op({ type: 'policy/restore', policyId: 'h1' }));
+ok('والاستعادة تُزيل التاريخ', (back.policies ?? [])[0].repealedAt === null);
+ok('وتُضيف سطرها', log(back, 'h1').at(-1)?.kind === 'restored');
+ok('والسجلّ يتراكم ولا يُمحى', log(back, 'h1').length === 4);
+
+roundTripP(reg, op({ type: 'policy/repeal', policyId: 'h1' }), 'إلغاء العمل بسياسة');
+roundTripP(repealed, op({ type: 'policy/restore', policyId: 'h1' }), 'إعادة العمل بسياسة');
+
+// والتراجع نفسه حدث يُسجَّل — لا يُمحى السطر الذي تراجعنا عنه
+const undoneRepeal = applyOp(repealed, op({ type: 'policy/restore', policyId: 'h1' }));
+ok(
+  'التراجع عن الإلغاء يترك أثره في السجلّ',
+  log(undoneRepeal, 'h1').map((e) => e.kind).join(',') === 'added,edited,repealed,restored',
+);
+
+// وإعادة سياسة محذوفة لا تدّعي ميلادًا ثانيًا
+const erased = applyOp(reg, op({ type: 'policy/remove', policyId: 'h1' }));
+const brought = applyOp(erased, op({ type: 'policy/add', policy: (reg.policies ?? [])[0] }));
+ok('وإعادة المحذوفة تُبقي سجلّها كما كان', log(brought, 'h1').length === 2);
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);
