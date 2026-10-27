@@ -12,11 +12,11 @@ import { ModalHeader, Section } from '../../../../components/ui/Layout';
 import { Sheet } from '../../../../components/ui/Sheet';
 import { Input, Txt } from '../../../../components/ui/Txt';
 import { addDays, formatLongDate, todayISO } from '../../../../lib/dates';
-import { filingProgress, isHeld, openBefore } from '../../../../lib/meetings';
+import { isHeld, movedProgress, stuckBefore } from '../../../../lib/meetings';
 import { uid } from '../../../../lib/ids';
 import { goBack } from '../../../../lib/nav';
 import { OUTCOME_NAMES } from '../../../../lib/activityText';
-import { FilingBar } from '../../../../components/board/FilingBar';
+import { MovedBar } from '../../../../components/board/MovedBar';
 import { colors } from '../../../../lib/theme';
 import type { IconName } from '../../../../components/ui/iconData';
 import type { Board, Meeting, MeetingTopic, Outcome, OutcomeKind } from '../../../../shared/types';
@@ -98,7 +98,7 @@ export default function MeetingScreen() {
  */
 function HeldRow({ board, meeting, onChange }: { board: Board; meeting: Meeting; onChange: (held: boolean) => void }) {
   const held = isHeld(meeting);
-  const { filed, total } = filingProgress(board, meeting);
+  const { moved, total } = movedProgress(board, meeting);
   return (
     <View style={styles.heldRow}>
       <Chip
@@ -109,7 +109,7 @@ function HeldRow({ board, meeting, onChange }: { board: Board; meeting: Meeting;
       />
       {total > 0 ? (
         <View style={styles.heldBar}>
-          <FilingBar filed={filed} total={total} />
+          <MovedBar moved={moved} total={total} />
         </View>
       ) : null}
     </View>
@@ -285,13 +285,13 @@ function TopicRow({
  * not less.
  */
 function FollowUpSection({ board, meeting }: { board: Board; meeting: Meeting }) {
-  const groups = openBefore(board, meeting.id);
+  const groups = stuckBefore(board, meeting.id);
   if (groups.length === 0) return null;
 
   const total = groups.reduce((sum, g) => sum + g.items.length, 0);
 
   return (
-    <Section title="متابعة ما سبق" icon="history" right={<Txt style={styles.count}>{total}</Txt>}>
+    <Section title="لم تُرحَّل بعد" icon="history" right={<Txt style={styles.count}>{total}</Txt>}>
       {groups.map((group) => (
         <View key={group.meeting.id} style={styles.group}>
           <Pressable
@@ -310,7 +310,7 @@ function FollowUpSection({ board, meeting }: { board: Board; meeting: Meeting })
               <Pressable
                 accessibilityRole="checkbox"
                 aria-checked={false}
-                accessibilityLabel={`إنجاز ${item.text}`}
+                accessibilityLabel={`ترحيل ${item.text}`}
                 onPress={() =>
                   dispatch(board.id, {
                     type: 'outcome/update',
@@ -462,7 +462,7 @@ function OutcomeRow({ board, meeting, outcome }: { board: Board; meeting: Meetin
           <Pressable
             accessibilityRole="checkbox"
             aria-checked={outcome.done === true}
-            accessibilityLabel={`إنجاز ${outcome.text}`}
+            accessibilityLabel={`ترحيل ${outcome.text}`}
             onPress={() => update({ done: !outcome.done })}
             style={({ pressed }) => [styles.doneBox, outcome.done && styles.doneBoxOn, pressed && styles.pressed]}
           >

@@ -3,7 +3,7 @@
 // project has no test runner, and this needs none — `npm run check:model`, plain assertions, no
 // framework to keep working.
 
-import { filingProgress, isFiled, isHeld, isOpen, needsFiling as needsFilingCheck, openBefore } from '../src/lib/meetings';
+import { hasMoved, isHeld, movedProgress, needsMoving, stuckBefore } from '../src/lib/meetings';
 import { subjectHistory } from '../src/lib/subjects';
 import { stillApplies, undoOf } from '../src/shared/activity';
 import { applyOp } from '../src/shared/reducer';
@@ -398,39 +398,19 @@ roundTripP(pol, op({ type: 'policy/remove', policyId: 'p1' }), 'حذف سياس�
 const open = (o: Partial<Outcome>): Outcome => ({ id: 'x', kind: 'task', text: 'ت', ...o }) as Outcome;
 const plain = board();
 
-ok('المهمة بلا بطاقة مفتوحة', isOpen(open({ kind: 'task' }), plain));
-ok('والمُنجَزة يدويًّا مغلقة', !isOpen(open({ kind: 'task', done: true }), plain));
-ok('والمسؤولية لا تُتابَع — لا تنتهي أصلًا', !isOpen(open({ kind: 'assignment' }), plain));
-ok('ولا الملاحظة', !isOpen(open({ kind: 'note' }), plain));
-ok('ولا الإعلان', !isOpen(open({ kind: 'announcement' }), plain));
-ok('والسياسة مفتوحة حتى تُكتب فعلًا', isOpen(open({ kind: 'policy' }), plain));
-ok('فإذا كُتبت أُغلقت', !isOpen(open({ kind: 'policy', policyId: 'p1' }), plain));
-
-// مهمة لها بطاقة: الحكم للبطاقة
-const withCards: Board = {
-  ...plain,
-  cards: {
-    c1: { id: 'c1', title: 'جارية', description: '', labelIds: [], due: null, checklist: [], cover: null, createdAt: 1 },
-    c2: { id: 'c2', title: 'منجزة', description: '', labelIds: [], due: null, dueDone: true, checklist: [], cover: null, createdAt: 1 },
-  },
-};
-ok('مهمة ببطاقة غير منجزة تبقى مفتوحة', isOpen(open({ kind: 'task', cardId: 'c1' }), withCards));
-ok('ومهمة ببطاقة منجزة تُغلق', !isOpen(open({ kind: 'task', cardId: 'c2' }), withCards));
-ok('ومهمة ببطاقة محذوفة تبقى مفتوحة', isOpen(open({ kind: 'task', cardId: 'لا-وجود' }), withCards));
-
 // الترتيب: الأقدم يظهر أيضًا، لا الاجتماع السابق وحده
 let timeline = board();
 for (const [id, date] of [['m1', '2026-01-01'], ['m2', '2026-01-08'], ['m3', '2026-01-15']] as const) {
   timeline = applyOp(timeline, op({ type: 'meeting/add', meeting: meeting(id, date) }));
   timeline = applyOp(timeline, op({ type: 'outcome/add', meetingId: id, outcome: open({ id: `o-${id}`, kind: 'task', text: `مهمة ${id}` }) }));
 }
-const before3 = openBefore(timeline, 'm3');
+const before3 = stuckBefore(timeline, 'm3');
 ok('يظهر كل ما سبق لا الاجتماع السابق وحده', before3.map((g) => g.meeting.id).join(',') === 'm2,m1');
 ok('والأحدث أولًا', before3[0].meeting.id === 'm2');
-ok('ولا شيء قبل الأقدم', openBefore(timeline, 'm1').length === 0);
+ok('ولا شيء قبل الأقدم', stuckBefore(timeline, 'm1').length === 0);
 
 const settled = applyOp(timeline, op({ type: 'outcome/update', meetingId: 'm2', outcomeId: 'o-m2', patch: { done: true } }));
-ok('إنجاز توصية يُخرج اجتماعها من المتابعة', openBefore(settled, 'm3').map((g) => g.meeting.id).join(',') === 'm1');
+ok('تأشير توصية يُخرج اجتماعها من المتابعة', stuckBefore(settled, 'm3').map((g) => g.meeting.id).join(',') === 'm1');
 ok('ويُسجَّل إنجازًا', settled.activity?.at(-1)?.what.type === 'outcome/done');
 
 roundTripP(timeline, op({ type: 'outcome/update', meetingId: 'm2', outcomeId: 'o-m2', patch: { done: true } }), 'إنجاز توصية');
@@ -471,7 +451,8 @@ ok('ولا توصيات موضوع آخر', !h.visits.some((v) => v.outcomes.som
 ok('ويجمع ما خرج منه من سياسات', h.policies.map((p) => p.id).join(',') === 'P1');
 ok('دون سياسة كُتبت مباشرة', !h.policies.some((p) => p.id === 'P2'));
 ok('ويَعُدّ الزيارات والقرارات', h.counts.visits === 2 && h.counts.decisions === 3);
-ok('ويَعُدّ ما بقي مفتوحًا منها', h.counts.open === 1);
+// q1 سياسة مُرحَّلة بلا تاريخ، و q2 مهمة بلا موضع: كلتاهما لم تُرحَّل. و q4 مؤشَّرة فخرجت.
+ok('ويَعُدّ ما لم يُرحَّل منها', h.counts.stuck === 2);
 ok('وموضوع لم يُناقَش يُجمَع فارغًا', subjectHistory(hist, 'T')!.visits.length === 1);
 ok('وموضوع غير موجود يُعيد عدمًا', subjectHistory(hist, 'لا-وجود') === null);
 
@@ -522,43 +503,42 @@ ok('واجتماع قادم لا', !isHeld(m({ date: '2026-07-01' }), TODAY));
 ok('والعلَم يغلب التاريخ: مؤجَّل مضى يومه', !isHeld(m({ date: '2026-06-01', held: false }), TODAY));
 ok('ومنعقد قبل يومه', isHeld(m({ date: '2026-07-01', held: true }), TODAY));
 
-// ── فُرِّغ أم لم يُفرَّغ ─────────────────────────────────────────────────────
-const withCard: Board = {
-  ...board(),
+// مقياس واحد: هل خرج القرار من الاجتماع؟
+const withCards: Board = {
+  ...plain,
   cards: {
     c1: { id: 'c1', title: 'ب', description: '', labelIds: [], due: null, checklist: [{ id: 'i1', text: 'ت', done: false }], cover: null, createdAt: 1 },
   },
   policies: [{ id: 'P', text: 'س', at: 1 }],
 };
-const o = (x: Partial<Outcome>): Outcome => ({ id: 'o', kind: 'task', text: 'ت', ...x }) as Outcome;
 
-ok('الملاحظة لا تُحسب أصلًا', isFiled(o({ kind: 'note' }), withCard) && !needsFilingCheck(o({ kind: 'note' })));
-ok('مهمة بلا بطاقة ولا موعد: غير مُفرَّغة', !isFiled(o({ kind: 'task' }), withCard));
-ok('مهمة ببطاقة بلا موعد: غير مُفرَّغة', !isFiled(o({ kind: 'task', cardId: 'c1' }), withCard));
-ok('مهمة بموعد بلا بطاقة: غير مُفرَّغة', !isFiled(o({ kind: 'task', due: '2026-07-01' }), withCard));
-ok('مهمة ببطاقة وموعد: مُفرَّغة', isFiled(o({ kind: 'task', cardId: 'c1', due: '2026-07-01' }), withCard));
-ok('ومهمة داخل بطاقة كذلك', isFiled(o({ kind: 'task', cardId: 'c1', itemId: 'i1', due: '2026-07-01' }), withCard));
-ok('لكن بندًا حُذف من البطاقة لا', !isFiled(o({ kind: 'task', cardId: 'c1', itemId: 'لا-وجود', due: '2026-07-01' }), withCard));
-ok('وبطاقة حُذفت لا', !isFiled(o({ kind: 'task', cardId: 'لا-وجود', due: '2026-07-01' }), withCard));
-ok('سياسة مُرحَّلة ومؤرَّخة: مُفرَّغة', isFiled(o({ kind: 'policy', policyId: 'P', due: '2026-07-01' }), withCard));
-ok('وسياسة مُرحَّلة بلا تاريخ: لا', !isFiled(o({ kind: 'policy', policyId: 'P' }), withCard));
-
-// الفرق الذي يستحق الوجود: مُفرَّغة ومفتوحة معًا
-const filedOpen = o({ kind: 'task', cardId: 'c1', due: '2026-07-01' });
-ok('المُفرَّغة قد تبقى مفتوحة — وهذا حال كل اجتماع حديث', isFiled(filedOpen, withCard) && isOpen(filedOpen, withCard));
+ok('المسؤولية لا تُرحَّل — ليس لها موضع آخر', !needsMoving(open({ kind: 'assignment' })));
+ok('ولا الملاحظة', !needsMoving(open({ kind: 'note' })));
+ok('ولا الإعلان', !needsMoving(open({ kind: 'announcement' })));
+ok('مهمة بلا بطاقة ولا موعد: لم تُرحَّل', !hasMoved(open({ kind: 'task' }), withCards));
+ok('مهمة ببطاقة بلا موعد: لم تُرحَّل', !hasMoved(open({ kind: 'task', cardId: 'c1' }), withCards));
+ok('مهمة بموعد بلا بطاقة: لم تُرحَّل', !hasMoved(open({ kind: 'task', due: '2026-07-01' }), withCards));
+ok('مهمة ببطاقة وموعد: رُحِّلت', hasMoved(open({ kind: 'task', cardId: 'c1', due: '2026-07-01' }), withCards));
+ok('ومهمة داخل بطاقة كذلك', hasMoved(open({ kind: 'task', cardId: 'c1', itemId: 'i1', due: '2026-07-01' }), withCards));
+ok('وبندٌ حُذف من البطاقة لا', !hasMoved(open({ kind: 'task', cardId: 'c1', itemId: 'لا-وجود', due: '2026-07-01' }), withCards));
+ok('وبطاقة حُذفت لا', !hasMoved(open({ kind: 'task', cardId: 'لا-وجود', due: '2026-07-01' }), withCards));
+ok('سياسة مُرحَّلة ومؤرَّخة', hasMoved(open({ kind: 'policy', policyId: 'P', due: '2026-07-01' }), withCards));
+ok('وسياسة بلا تاريخ لا', !hasMoved(open({ kind: 'policy', policyId: 'P' }), withCards));
+// بعض القرارات لا موضع لها: قيلت وانتهت
+ok('والتأشير يُنهيها مهما نقص', hasMoved(open({ kind: 'task', done: true }), withCards));
 
 const meetingMixed = m({
   outcomes: [
-    o({ id: 'a', kind: 'task', cardId: 'c1', due: '2026-07-01' }),
-    o({ id: 'b', kind: 'task' }),
-    o({ id: 'c', kind: 'policy', policyId: 'P', due: '2026-07-01' }),
-    o({ id: 'd', kind: 'note' }),
-    o({ id: 'e', kind: 'announcement' }),
+    open({ id: 'a', kind: 'task', cardId: 'c1', due: '2026-07-01' }),
+    open({ id: 'b', kind: 'task' }),
+    open({ id: 'c', kind: 'policy', policyId: 'P', due: '2026-07-01' }),
+    open({ id: 'd', kind: 'note' }),
+    open({ id: 'e', kind: 'announcement' }),
   ],
 });
-const prog = filingProgress(withCard, meetingMixed);
-ok('الشريط يَعُدّ ما يحتاج تفريغًا وحده', prog.total === 3 && prog.filed === 2);
-ok('واجتماع بلا ما يُفرَّغ لا شريط له', filingProgress(withCard, m({ outcomes: [o({ id: 'z', kind: 'note' })] })).total === 0);
+const prog = movedProgress(withCards, meetingMixed);
+ok('الشريط يَعُدّ ما يُرحَّل وحده', prog.total === 3 && prog.moved === 2);
+ok('واجتماع لا شيء فيه يُرحَّل لا شريط له', movedProgress(withCards, m({ outcomes: [open({ id: 'z', kind: 'note' })] })).total === 0);
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);

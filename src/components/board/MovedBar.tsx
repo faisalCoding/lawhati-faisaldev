@@ -4,19 +4,19 @@ import { colors } from '../../lib/theme';
 import { Txt } from '../ui/Txt';
 
 /**
- * How much of a meeting's output has been written down where it gets followed.
+ * How much of a meeting's output has left it for the place it belongs.
  *
- * Not «how much is done» — that is a different question the board answers elsewhere. A decision
- * can be filed and still open, which is the normal state of a meeting a week old.
+ * Not «how much is done»: whether the work is finished is the card's business, and the board
+ * answers it there. The minutes ask only whether the decision went anywhere.
  */
-export function FilingBar({ filed, total }: { filed: number; total: number }) {
-  const done = filed === total;
+export function MovedBar({ moved, total }: { moved: number; total: number }) {
+  const done = moved === total;
   return (
     <View style={styles.bar}>
       <View style={styles.track}>
-        <View style={[styles.fill, { width: `${Math.round((filed / total) * 100)}%` }, done && styles.fillDone]} />
+        <View style={[styles.fill, { width: `${Math.round((moved / total) * 100)}%` }, done && styles.fillDone]} />
       </View>
-      <Txt style={[styles.text, done && styles.textDone]}>{done ? 'فُرِّغ كاملًا' : `فُرِّغ ${filed} من ${total}`}</Txt>
+      <Txt style={[styles.text, done && styles.textDone]}>{done ? 'رُحِّلت كلّها' : `رُحِّلت ${moved} من ${total}`}</Txt>
     </View>
   );
 }

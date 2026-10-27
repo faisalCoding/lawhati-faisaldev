@@ -7,7 +7,7 @@ import { ModalHeader, Section } from '../../../../components/ui/Layout';
 import { Txt } from '../../../../components/ui/Txt';
 import { OUTCOME_NAMES } from '../../../../lib/activityText';
 import { formatLongDate } from '../../../../lib/dates';
-import { isOpen } from '../../../../lib/meetings';
+import { hasMoved } from '../../../../lib/meetings';
 import { goBack } from '../../../../lib/nav';
 import { subjectHistory, type SubjectVisit } from '../../../../lib/subjects';
 import { colors } from '../../../../lib/theme';
@@ -44,7 +44,7 @@ export default function SubjectScreen() {
         <View style={styles.summary}>
           <Stat value={counts.visits} label="اجتماعًا" />
           <Stat value={counts.decisions} label="قرارًا" />
-          <Stat value={counts.open} label="ما زال مفتوحًا" tone={counts.open ? colors.warning : undefined} />
+          <Stat value={counts.stuck} label="لم تُرحَّل" tone={counts.stuck ? colors.warning : undefined} />
           <Stat value={policies.length} label="سياسة" />
         </View>
 
@@ -103,17 +103,17 @@ function Visit({ board, visit }: { board: Board; visit: SubjectVisit }) {
         <Txt style={styles.nothing}>نُوقش ولم يخرج بقرار.</Txt>
       ) : (
         outcomes.map((outcome) => {
-          const open = isOpen(outcome, board);
+          const stuck = !hasMoved(outcome, board);
           return (
             <View key={outcome.id} style={styles.outcome}>
-              <View style={[styles.dot, open ? styles.dotOpen : styles.dotSettled]} />
+              <View style={[styles.dot, stuck ? styles.dotStuck : styles.dotMoved]} />
               <View style={styles.outcomeBody}>
                 <Txt style={styles.outcomeText}>{outcome.text}</Txt>
                 <Txt style={styles.outcomeMeta}>
                   {OUTCOME_NAMES[outcome.kind]}
                   {outcome.assignee ? ` · ${outcome.assignee.name}` : ''}
                   {outcome.due ? ` · ${formatLongDate(outcome.due)}` : ''}
-                  {open ? ' · لم يُنفَّذ بعد' : ''}
+                  {stuck ? ' · لم تُرحَّل بعد' : ''}
                 </Txt>
               </View>
             </View>
@@ -151,8 +151,8 @@ const styles = StyleSheet.create({
   nothing: { fontSize: 12.5, color: colors.textFaint },
   outcome: { flexDirection: 'row-reverse', alignItems: 'flex-start', gap: 9 },
   dot: { width: 8, height: 8, borderRadius: 4, marginTop: 7 },
-  dotOpen: { backgroundColor: colors.warning },
-  dotSettled: { backgroundColor: colors.success },
+  dotStuck: { backgroundColor: colors.warning },
+  dotMoved: { backgroundColor: colors.success },
   outcomeBody: { flex: 1, gap: 2 },
   outcomeText: { fontSize: 14, lineHeight: 25 },
   outcomeMeta: { fontSize: 11.5, color: colors.textFaint },

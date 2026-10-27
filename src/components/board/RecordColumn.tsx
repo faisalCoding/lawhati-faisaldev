@@ -4,7 +4,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { formatLongDate, todayISO } from '../../lib/dates';
 import { uid } from '../../lib/ids';
-import { filingProgress, isHeld } from '../../lib/meetings';
+import { isHeld, movedProgress } from '../../lib/meetings';
 import { pluralPolicies, pluralTopics } from '../../lib/text';
 import { colors, LIST_GAP, LIST_WIDTH } from '../../lib/theme';
 import type { Board, BoardColumn, Meeting, Policy } from '../../shared/types';
@@ -315,7 +315,7 @@ function MeetingCard({
   onMove?: () => void;
 }) {
   const held = isHeld(meeting);
-  const { filed, total } = filingProgress(board, meeting);
+  const { moved, total } = movedProgress(board, meeting);
 
   return (
     <Pressable
@@ -351,13 +351,13 @@ function MeetingCard({
             <View
               style={[
                 styles.barFill,
-                { width: `${Math.round((filed / total) * 100)}%` },
-                filed === total && styles.barFillDone,
+                { width: `${Math.round((moved / total) * 100)}%` },
+                moved === total && styles.barFillDone,
               ]}
             />
           </View>
-          <Txt style={[styles.barText, filed === total && styles.barTextDone]}>
-            {filed === total ? 'فُرِّغ' : `${filed}/${total}`}
+          <Txt style={[styles.barText, moved === total && styles.barTextDone]}>
+            {moved === total ? 'رُحِّلت' : `${moved}/${total}`}
           </Txt>
         </View>
       ) : null}

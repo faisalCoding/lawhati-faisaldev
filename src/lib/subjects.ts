@@ -1,4 +1,4 @@
-import { isOpen } from './meetings';
+import { hasMoved } from './meetings';
 import type { AgendaSubject, Board, Meeting, MeetingTopic, Outcome, Policy } from '../shared/types';
 
 // Everything one standing subject has ever gathered: every time it was discussed, what was said,
@@ -21,7 +21,7 @@ export interface SubjectHistory {
   visits: SubjectVisit[];
   /** The standing rules it produced, in the board's own order. */
   policies: Policy[];
-  counts: { visits: number; decisions: number; open: number };
+  counts: { visits: number; decisions: number; stuck: number };
 }
 
 /**
@@ -52,7 +52,7 @@ export function subjectHistory(board: Board, subjectId: string): SubjectHistory 
   const policies = (board.policies ?? []).filter((p) => fromHere.has(p.id));
 
   const decisions = visits.reduce((sum, v) => sum + v.outcomes.length, 0);
-  const open = visits.reduce((sum, v) => sum + v.outcomes.filter((o) => isOpen(o, board)).length, 0);
+  const stuck = visits.reduce((sum, v) => sum + v.outcomes.filter((o) => !hasMoved(o, board)).length, 0);
 
-  return { subject, visits, policies, counts: { visits: visits.length, decisions, open } };
+  return { subject, visits, policies, counts: { visits: visits.length, decisions, stuck } };
 }
