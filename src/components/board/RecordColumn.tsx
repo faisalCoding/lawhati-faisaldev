@@ -37,7 +37,9 @@ export function RecordColumn({
   count: number;
   maxHeight: number;
 }) {
-  const [sheet, setSheet] = useState<'menu' | 'remove' | null>(null);
+  const [sheet, setSheet] = useState<'menu' | 'remove' | 'rename' | 'agenda' | null>(null);
+  const [moving, setMoving] = useState<{ id: string; text: string } | null>(null);
+  const [editing, setEditing] = useState<Policy | null>(null);
   const [composing, setComposing] = useState(false);
 
   const siblings = (board.columns ?? []).filter((c) => c.kind === column.kind && c.id !== column.id);
@@ -46,16 +48,15 @@ export function RecordColumn({
       ? mine(board.meetings ?? [], column, board)
       : mine(board.policies ?? [], column, board);
 
-  const menu: SheetAction[] = [
-    {
-      label: 'إعادة التسمية',
-      icon: 'pencil',
-      onPress: () => {
-        setSheet(null);
-        setComposing(false);
-      },
-    },
-  ];
+  const menu: SheetAction[] = [{ label: 'إعادة التسمية', icon: 'pencil', onPress: () => setSheet('rename') }];
+  if (column.kind === 'meetings') {
+    menu.push({
+      label: 'المحاور الثابتة',
+      icon: 'layers',
+      hint: 'يبدأ كل اجتماع جديد بها',
+      onPress: () => setSheet('agenda'),
+    });
+  }
   if (index > 0) {
     menu.push({
       label: 'نقل إلى اليمين',
@@ -120,8 +121,26 @@ export function RecordColumn({
 
       <ScrollView style={styles.cards} contentContainerStyle={styles.cardsContent} keyboardShouldPersistTaps="handled">
         {column.kind === 'meetings'
-          ? (items as Meeting[]).map((m) => <MeetingCard key={m.id} board={board} meeting={m} />)
-          : (items as Policy[]).map((p) => <PolicyCard key={p.id} board={board} policy={p} />)}
+          ? (items as Meeting[]).map((m) => (
+              <MeetingCard
+                key={m.id}
+                board={board}
+                meeting={m}
+                onMove={siblings.length ? () => setMoving({ id: m.id, text: m.title }) : undefined}
+              />
+            ))
+          : (items as Policy[]).map((p, i) => (
+              <PolicyCard
+                key={p.id}
+                board={board}
+                policy={p}
+                onEdit={() => setEditing(p)}
+                onMove={siblings.length ? () => setMoving({ id: p.id, text: p.text }) : undefined}
+                onShift={(delta) => shiftPolicy(board, p, i, items as Policy[], delta)}
+                first={i === 0}
+                last={i === items.length - 1}
+              />
+            ))}
       </ScrollView>
 
       {composing ? (
@@ -144,6 +163,10 @@ export function RecordColumn({
 
       <Sheet visible={sheet !== null} onClose={() => setSheet(null)} title={column.title}>
         {sheet === 'menu' ? <ActionList actions={menu} /> : null}
+        {sheet === 'rename' ? (
+          <RenameColumn board={board} column={column} onDone={() => setSheet(null)} />
+        ) : null}
+        {sheet === 'agenda' ? <AgendaSheet board={board} /> : null}
         {sheet === 'remove' ? (
           <RemoveColumn
             board={board}
@@ -154,8 +177,51 @@ export function RecordColumn({
           />
         ) : null}
       </Sheet>
+
+      <Sheet visible={moving !== null} onClose={() => setMoving(null)} title="نقل إلى عمود">
+        <View style={styles.remove}>
+          {siblings.map((sib) => (
+            <Pressable
+              key={sib.id}
+              accessibilityRole="button"
+              onPress={() => {
+                if (!moving) return;
+                dispatch(
+                  board.id,
+                  column.kind === 'meetings'
+                    ? { type: 'meeting/update', meetingId: moving.id, patch: { columnId: sib.id } }
+                    : { type: 'policy/update', policyId: moving.id, patch: { columnId: sib.id } },
+                );
+                setMoving(null);
+              }}
+              style={({ pressed }) => [styles.removeChoice, pressed && styles.pressed]}
+            >
+              <Icon name={column.kind === 'meetings' ? 'calendar' : 'book'} size={16} color={colors.primary} />
+              <Txt style={styles.removeMove}>{sib.title}</Txt>
+            </Pressable>
+          ))}
+        </View>
+      </Sheet>
+
+      <Sheet visible={editing !== null} onClose={() => setEditing(null)} title="السياسة">
+        {editing ? <EditPolicy board={board} policy={editing} onDone={() => setEditing(null)} /> : null}
+      </Sheet>
     </View>
   );
+}
+
+/**
+ * Moves a policy one place within its column.
+ *
+ * The board holds every policy in one array, so a neighbour in the column may be many places away
+ * in it. The swap is made against the neighbour's real index, not the one on screen.
+ */
+function shiftPolicy(board: Board, policy: Policy, index: number, column: Policy[], delta: number) {
+  const neighbour = column[index + delta];
+  if (!neighbour) return;
+  const to = (board.policies ?? []).findIndex((p) => p.id === neighbour.id);
+  if (to < 0) return;
+  dispatch(board.id, { type: 'policy/move', policyId: policy.id, toIndex: to });
 }
 
 /** Everything filed here — including anything with no column at all, which the first one adopts. */
@@ -238,14 +304,25 @@ function RemoveColumn({
   );
 }
 
-function MeetingCard({ board, meeting }: { board: Board; meeting: Meeting }) {
+function MeetingCard({
+  board,
+  meeting,
+  onMove,
+}: {
+  board: Board;
+  meeting: Meeting;
+  /** Absent when there is nowhere else of this kind to move it to. */
+  onMove?: () => void;
+}) {
   const held = isHeld(meeting);
   const { filed, total } = filingProgress(board, meeting);
 
   return (
     <Pressable
       onPress={() => router.push(`/board/${board.id}/meeting/${meeting.id}`)}
+      onLongPress={onMove}
       accessibilityRole="button"
+      accessibilityHint={onMove ? 'اضغط مطوّلًا لنقله إلى عمود آخر' : undefined}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
       <View style={styles.cardTop}>
@@ -259,10 +336,14 @@ function MeetingCard({ board, meeting }: { board: Board; meeting: Meeting }) {
         </View>
       </View>
 
-      <Txt style={styles.cardMeta}>
-        {formatLongDate(meeting.date)} · {pluralTopics(meeting.topics.length)}
-        {meeting.attendees.length ? ` · ${meeting.attendees.length} حضورًا` : ''}
-      </Txt>
+      <View style={styles.cardFoot}>
+        <Txt style={styles.cardMeta} numberOfLines={1}>
+          {formatLongDate(meeting.date)} · {pluralTopics(meeting.topics.length)}
+          {meeting.attendees.length ? ` · ${meeting.attendees.length} حضورًا` : ''}
+        </Txt>
+        {/* Visible, not a hidden long-press: everything else on this board is a thing you can see. */}
+        {onMove ? <IconButton name="move" label="نقل إلى عمود آخر" size={16} onPress={onMove} /> : null}
+      </View>
 
       {total > 0 ? (
         <View style={styles.bar}>
@@ -284,24 +365,189 @@ function MeetingCard({ board, meeting }: { board: Board; meeting: Meeting }) {
   );
 }
 
-function PolicyCard({ board, policy }: { board: Board; policy: Policy }) {
+function PolicyCard({
+  board,
+  policy,
+  onEdit,
+  onMove,
+  onShift,
+  first,
+  last,
+}: {
+  board: Board;
+  policy: Policy;
+  onEdit: () => void;
+  onMove?: () => void;
+  onShift: (delta: number) => void;
+  first: boolean;
+  last: boolean;
+}) {
   const meeting = policy.meetingId ? board.meetings?.find((m) => m.id === policy.meetingId) : undefined;
   return (
     <Pressable
-      onPress={() => router.push(`/board/${board.id}/policies`)}
+      onPress={onEdit}
+      onLongPress={onMove}
       accessibilityRole="button"
+      accessibilityHint={onMove ? 'اضغط مطوّلًا لنقلها إلى عمود آخر' : undefined}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
       <Txt style={styles.policyText}>{policy.text}</Txt>
-      {meeting ? (
-        <View style={styles.from}>
-          <Icon name="calendar" size={11} color={colors.textFaint} />
-          <Txt style={styles.fromText} numberOfLines={1}>
-            {meeting.title}
-          </Txt>
-        </View>
-      ) : null}
+      <View style={styles.policyFoot}>
+        {meeting ? (
+          <View style={styles.from}>
+            <Icon name="calendar" size={11} color={colors.textFaint} />
+            <Txt style={styles.fromText} numberOfLines={1}>
+              {meeting.title}
+            </Txt>
+          </View>
+        ) : (
+          <View style={styles.from} />
+        )}
+        {/* A rule's order is a choice, unlike a meeting's, so it can be put where it reads best. */}
+        {onMove ? <IconButton name="move" label="نقل إلى عمود آخر" size={16} onPress={onMove} /> : null}
+        <IconButton name="chevron-up" label="أعلى" size={16} onPress={() => onShift(-1)} disabled={first} />
+        <IconButton name="chevron-down" label="أسفل" size={16} onPress={() => onShift(1)} disabled={last} />
+      </View>
     </Pressable>
+  );
+}
+
+/**
+ * The subjects these meetings keep returning to. Every new meeting starts from them.
+ *
+ * It lives in the meetings column's own menu rather than on a screen of its own: it is set once
+ * and read rarely, and it belongs to the column it shapes.
+ */
+function AgendaSheet({ board }: { board: Board }) {
+  const [draft, setDraft] = useState('');
+  const agenda = board.agenda ?? [];
+
+  const add = () => {
+    const title = draft.trim();
+    if (!title) return;
+    dispatch(board.id, { type: 'agenda/add', subject: { id: uid(), title } });
+    setDraft('');
+  };
+
+  return (
+    <ScrollView style={styles.agendaSheet} keyboardShouldPersistTaps="handled">
+      <Txt style={styles.agendaNote}>
+        يبدأ كل اجتماع جديد بهذه المحاور جاهزةً للتدوين، ويبقى بإمكانك إضافة محاور طارئة داخله.
+      </Txt>
+
+      {agenda.map((subject, index) => (
+        <View key={subject.id} style={styles.agendaRow}>
+          <Txt style={styles.agendaTitle} numberOfLines={2}>
+            {subject.title}
+          </Txt>
+          <IconButton
+            name="history"
+            label={`كل ما تقرّر عن ${subject.title}`}
+            size={18}
+            onPress={() => router.push(`/board/${board.id}/subject/${subject.id}`)}
+          />
+          <IconButton
+            name="chevron-up"
+            label="أعلى"
+            size={18}
+            disabled={index === 0}
+            onPress={() => dispatch(board.id, { type: 'agenda/move', subjectId: subject.id, toIndex: index - 1 })}
+          />
+          <IconButton
+            name="chevron-down"
+            label="أسفل"
+            size={18}
+            disabled={index === agenda.length - 1}
+            onPress={() => dispatch(board.id, { type: 'agenda/move', subjectId: subject.id, toIndex: index + 1 })}
+          />
+          <IconButton
+            name="trash"
+            label="حذف المحور الثابت"
+            size={18}
+            onPress={() => dispatch(board.id, { type: 'agenda/remove', subjectId: subject.id })}
+          />
+        </View>
+      ))}
+
+      <View style={styles.agendaAdd}>
+        <Input
+          value={draft}
+          onChangeText={setDraft}
+          placeholder="محور ثابت جديد"
+          onSubmitEditing={add}
+          returnKeyType="done"
+          style={styles.agendaInput}
+        />
+        <IconButton name="plus" label="إضافة محور ثابت" onPress={add} disabled={!draft.trim()} />
+      </View>
+    </ScrollView>
+  );
+}
+
+function RenameColumn({ board, column, onDone }: { board: Board; column: BoardColumn; onDone: () => void }) {
+  const [text, setText] = useState(column.title);
+  return (
+    <View style={styles.remove}>
+      <Input autoFocus value={text} onChangeText={setText} placeholder="اسم العمود" style={styles.editInput} />
+      <Pressable
+        accessibilityRole="button"
+        disabled={!text.trim() || text.trim() === column.title}
+        onPress={() => {
+          dispatch(board.id, { type: 'column/update', columnId: column.id, patch: { title: text.trim() } });
+          onDone();
+        }}
+        style={({ pressed }) => [styles.removeChoice, pressed && styles.pressed]}
+      >
+        <Icon name="check" size={16} color={colors.primary} />
+        <Txt style={styles.removeMove}>حفظ</Txt>
+      </Pressable>
+    </View>
+  );
+}
+
+function EditPolicy({ board, policy, onDone }: { board: Board; policy: Policy; onDone: () => void }) {
+  const [text, setText] = useState(policy.text);
+  const meeting = policy.meetingId ? board.meetings?.find((m) => m.id === policy.meetingId) : undefined;
+  return (
+    <View style={styles.remove}>
+      <Input autoFocus multiline value={text} onChangeText={setText} placeholder="نصّ السياسة" style={styles.editInput} />
+      {meeting ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            onDone();
+            router.push(`/board/${board.id}/meeting/${meeting.id}`);
+          }}
+          style={({ pressed }) => [styles.from, pressed && styles.pressed]}
+        >
+          <Icon name="calendar" size={12} color={colors.textFaint} />
+          <Txt style={styles.fromText}>من {meeting.title}</Txt>
+        </Pressable>
+      ) : null}
+      <Pressable
+        accessibilityRole="button"
+        disabled={!text.trim() || text.trim() === policy.text}
+        onPress={() => {
+          dispatch(board.id, { type: 'policy/update', policyId: policy.id, patch: { text: text.trim() } });
+          onDone();
+        }}
+        style={({ pressed }) => [styles.removeChoice, pressed && styles.pressed]}
+      >
+        <Icon name="check" size={16} color={colors.primary} />
+        <Txt style={styles.removeMove}>حفظ</Txt>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => {
+          dispatch(board.id, { type: 'policy/remove', policyId: policy.id });
+          onDone();
+        }}
+        style={({ pressed }) => [styles.removeChoice, pressed && styles.pressed]}
+      >
+        <Icon name="trash" size={16} color={colors.danger} />
+        <Txt style={styles.removeDelete}>حذف السياسة</Txt>
+      </Pressable>
+    </View>
   );
 }
 
@@ -373,7 +619,8 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.75 },
   cardTop: { flexDirection: 'row-reverse', alignItems: 'flex-start', gap: 6 },
   cardTitle: { flex: 1, fontSize: 14, fontWeight: '700', lineHeight: 23 },
-  cardMeta: { fontSize: 11, color: colors.textFaint },
+  cardFoot: { flexDirection: 'row-reverse', alignItems: 'center', gap: 4 },
+  cardMeta: { flex: 1, fontSize: 11, color: colors.textFaint },
   held: { paddingVertical: 1, paddingHorizontal: 6, borderRadius: 5 },
   heldOn: { backgroundColor: colors.successBg },
   heldOff: { backgroundColor: colors.list },
@@ -387,7 +634,24 @@ const styles = StyleSheet.create({
   barText: { fontSize: 10, color: colors.textFaint },
   barTextDone: { color: colors.success, fontWeight: '700' },
   policyText: { fontSize: 13.5, lineHeight: 24 },
-  from: { flexDirection: 'row-reverse', alignItems: 'center', gap: 4 },
+  policyFoot: { flexDirection: 'row-reverse', alignItems: 'center', gap: 2 },
+  from: { flex: 1, flexDirection: 'row-reverse', alignItems: 'center', gap: 4 },
+  editInput: { fontSize: 15, minHeight: 44 },
+  agendaSheet: { maxHeight: 420, paddingHorizontal: 16, paddingBottom: 16 },
+  agendaNote: { fontSize: 13, color: colors.textSubtle, lineHeight: 24, paddingVertical: 10 },
+  agendaRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    backgroundColor: colors.list,
+    marginBottom: 6,
+  },
+  agendaTitle: { flex: 1, fontSize: 14 },
+  agendaAdd: { flexDirection: 'row-reverse', alignItems: 'center', gap: 6, marginTop: 8 },
+  agendaInput: { flex: 1, fontSize: 14 },
   fromText: { flex: 1, fontSize: 10.5, color: colors.textFaint },
   addRow: {
     flexDirection: 'row-reverse',

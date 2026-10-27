@@ -16,7 +16,7 @@ import { filingProgress, isHeld, openBefore } from '../../../../lib/meetings';
 import { uid } from '../../../../lib/ids';
 import { goBack } from '../../../../lib/nav';
 import { OUTCOME_NAMES } from '../../../../lib/activityText';
-import { FilingBar } from '../meetings';
+import { FilingBar } from '../../../../components/board/FilingBar';
 import { colors } from '../../../../lib/theme';
 import type { IconName } from '../../../../components/ui/iconData';
 import type { Board, Meeting, MeetingTopic, Outcome, OutcomeKind } from '../../../../shared/types';
@@ -515,16 +515,14 @@ function OutcomeRow({ board, meeting, outcome }: { board: Board; meeting: Meetin
 
       {outcome.kind === 'policy' ? (
         policy ? (
-          <Pressable
-            onPress={() => router.push(`/board/${board.id}/policies`)}
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.cardLink, pressed && styles.pressed]}
-          >
+          /* Shown, not linked: the rule lives in a column on the board now, and its text is
+             already here — a tap that only closes this screen would be a worse answer. */
+          <View style={styles.cardLink}>
             <Icon name="book" size={14} color={colors.success} />
-            <Txt style={styles.cardLinkText} numberOfLines={1}>
+            <Txt style={styles.cardLinkText} numberOfLines={2}>
               في السياسات: {policy.text}
             </Txt>
-          </Pressable>
+          </View>
         ) : outcome.policyId ? (
           <Txt style={styles.note}>كانت سياسةً، وقد حُذفت.</Txt>
         ) : (
