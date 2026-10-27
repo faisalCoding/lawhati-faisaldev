@@ -1,6 +1,6 @@
 // Data model shared by the app and the sync server.
 
-export type PowerUpKey = 'labels' | 'dueDates' | 'checklists' | 'covers' | 'wipLimits';
+export type PowerUpKey = 'labels' | 'dueDates' | 'checklists' | 'covers' | 'wipLimits' | 'meetings';
 export type PowerUps = Record<PowerUpKey, boolean>;
 
 export interface Label {
@@ -163,6 +163,8 @@ export interface Meeting {
   /** Where it was held, or a link to join. */
   place?: string;
   /** Who was there, in the order they were added. */
+  /** The column it is filed under. Unfiled reads as the first meetings column. */
+  columnId?: string | null;
   attendees: Assignee[];
   topics: MeetingTopic[];
   /** What the meeting decided, in the order it was written down. Older meetings lack it. */
@@ -170,10 +172,23 @@ export interface Meeting {
   createdAt: number;
 }
 
-/** A heading the board's standing policies are filed under — «الرحلات», «الحضور والغياب». */
-export interface PolicySection {
+export type BoardColumnKind = 'meetings' | 'policies';
+
+/**
+ * A column on the board that is not a task list: meetings, or standing policies.
+ *
+ * One concept rather than two parallel ones, because «a policies section» and «another meetings
+ * column» are the same thing seen twice. It also lets the columns be ordered among themselves —
+ * meetings, then policies, then more meetings — which two separate lists could not express.
+ *
+ * They are never in `board.lists`. Twenty-four files read that array — the widget, the filters,
+ * the buttons, «assigned to me», the notifications, the progress ring, the backup, the reducer —
+ * and every one of them would take a meeting for a task.
+ */
+export interface BoardColumn {
   id: string;
   title: string;
+  kind: BoardColumnKind;
 }
 
 /**
@@ -189,8 +204,8 @@ export interface PolicySection {
 export interface Policy {
   id: string;
   text: string;
-  /** The section it is filed under, or null for unfiled. */
-  sectionId?: string | null;
+  /** The column it is filed under. Unfiled reads as the first policies column. */
+  columnId?: string | null;
   /** The meeting it came out of, when it came from one rather than being written down directly. */
   meetingId?: string | null;
   at: number;
@@ -221,8 +236,8 @@ export interface Board {
   agenda?: AgendaSubject[];
   /** The standing rules it works by, in the order they are read. Older boards lack it. */
   policies?: Policy[];
-  /** The headings those are filed under. */
-  policySections?: PolicySection[];
+  /** Its meeting and policy columns, in the order they are shown, after the task lists. */
+  columns?: BoardColumn[];
 }
 
 /**
@@ -309,13 +324,14 @@ export type ActivityWhat =
   | { type: 'agenda/title'; subject: string; from: string }
   | { type: 'agenda/move'; subject: string }
   | { type: 'agenda/remove'; subject: string }
-  | { type: 'section/add'; section: string }
-  | { type: 'section/title'; section: string; from: string }
-  | { type: 'section/move'; section: string }
-  | { type: 'section/remove'; section: string; policies: number }
-  | { type: 'policy/add'; policy: string; section: string | null }
+  | { type: 'column/add'; column: string; kind: BoardColumnKind }
+  | { type: 'column/title'; column: string; from: string }
+  | { type: 'column/move'; column: string }
+  | { type: 'column/remove'; column: string; cards: number; movedTo: string | null }
+  | { type: 'meeting/file'; meeting: string; column: string | null }
+  | { type: 'policy/add'; policy: string; column: string | null }
   | { type: 'policy/text'; policy: string; from: string }
-  | { type: 'policy/file'; policy: string; section: string | null }
+  | { type: 'policy/file'; policy: string; column: string | null }
   | { type: 'policy/move'; policy: string }
   | { type: 'policy/remove'; policy: string }
   | { type: 'outcome/policy'; meeting: string; text: string; added: boolean }
@@ -384,7 +400,7 @@ export type OpInput =
     }
   | { type: 'check/remove'; cardId: string; itemId: string }
   | { type: 'meeting/add'; meeting: Meeting }
-  | { type: 'meeting/update'; meetingId: string; patch: Partial<Pick<Meeting, 'title' | 'date' | 'place'>> }
+  | { type: 'meeting/update'; meetingId: string; patch: Partial<Pick<Meeting, 'title' | 'date' | 'place' | 'columnId'>> }
   | { type: 'meeting/remove'; meetingId: string }
   /** Puts someone in the room, or takes them out. `person` carries the name to keep. */
   | { type: 'meeting/attend'; meetingId: string; person: Assignee; on: boolean }
@@ -408,12 +424,16 @@ export type OpInput =
   | { type: 'agenda/update'; subjectId: string; patch: Partial<Pick<AgendaSubject, 'title'>> }
   | { type: 'agenda/move'; subjectId: string; toIndex: number }
   | { type: 'agenda/remove'; subjectId: string }
-  | { type: 'section/add'; section: PolicySection; index?: number }
-  | { type: 'section/update'; sectionId: string; patch: Partial<Pick<PolicySection, 'title'>> }
-  | { type: 'section/move'; sectionId: string; toIndex: number }
-  | { type: 'section/remove'; sectionId: string }
+  | { type: 'column/add'; column: BoardColumn; index?: number }
+  | { type: 'column/update'; columnId: string; patch: Partial<Pick<BoardColumn, 'title'>> }
+  | { type: 'column/move'; columnId: string; toIndex: number }
+  /**
+   * `moveTo` names the column its cards go to. Without it they are destroyed with it, which the
+   * app asks about separately — minutes are the most valuable thing on this board.
+   */
+  | { type: 'column/remove'; columnId: string; moveTo?: string | null }
   | { type: 'policy/add'; policy: Policy; index?: number }
-  | { type: 'policy/update'; policyId: string; patch: Partial<Pick<Policy, 'text' | 'sectionId' | 'meetingId'>> }
+  | { type: 'policy/update'; policyId: string; patch: Partial<Pick<Policy, 'text' | 'columnId' | 'meetingId'>> }
   | { type: 'policy/move'; policyId: string; toIndex: number }
   | { type: 'policy/remove'; policyId: string };
 

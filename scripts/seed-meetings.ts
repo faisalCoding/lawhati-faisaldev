@@ -14,7 +14,7 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { makeBackup, readBackup } from '../src/lib/backup';
-import type { Board, Meeting, MeetingTopic, Outcome, Policy } from '../src/shared/types';
+import type { Board, BoardColumn, Meeting, MeetingTopic, Outcome, Policy } from '../src/shared/types';
 
 type Kind = Outcome['kind'];
 
@@ -228,9 +228,13 @@ const at = (date: string) => new Date(`${date}T20:00:00Z`).getTime();
 const slug = (prefix: string, n: number) => `seed-${prefix}${n}`;
 
 const agenda = SUBJECTS.map((title, i) => ({ id: slug('s', i + 1), title }));
-const policySections = SECTIONS.map((title, i) => ({ id: slug('c', i + 1), title }));
+// One meetings column, then a column per policies heading.
+const columns: BoardColumn[] = [
+  { id: slug('k', 1), title: 'الاجتماعات', kind: 'meetings' },
+  ...SECTIONS.map((title, i) => ({ id: slug('c', i + 1), title, kind: 'policies' as const })),
+];
 const subjectId = (title: string) => agenda.find((a) => a.title === title)?.id ?? null;
-const sectionId = (title: string) => policySections.find((c) => c.title === title)?.id ?? null;
+const columnId = (title: string) => columns.find((c) => c.title === title)?.id ?? null;
 
 const meetings: Meeting[] = [];
 const policies: Policy[] = [];
@@ -268,7 +272,7 @@ SESSIONS.forEach((session, si) => {
       policies.push({
         id: policyId,
         text: d.text,
-        sectionId: d.section ? sectionId(d.section) : null,
+        columnId: d.section ? columnId(d.section) : null,
         meetingId,
         at: at(session.date),
       });
@@ -285,6 +289,7 @@ SESSIONS.forEach((session, si) => {
     id: meetingId,
     title: session.title,
     date: session.date,
+    columnId: slug('k', 1),
     attendees: [],
     topics,
     outcomes,
@@ -307,14 +312,14 @@ const board: Board = {
   ],
   cards: {},
   labels: [],
-  powerUps: { labels: true, dueDates: true, checklists: true, covers: true, wipLimits: false },
+  powerUps: { labels: true, dueDates: true, checklists: true, covers: true, wipLimits: false, meetings: true },
   shareCode: null,
   createdAt: at('2026-09-06'),
   updatedAt: at('2026-10-18'),
   agenda,
   meetings,
   policies,
-  policySections,
+  columns,
 };
 
 const text = JSON.stringify(makeBackup([{ code: null, board }]), null, 2);
@@ -340,5 +345,5 @@ const byKind = meetings
   .reduce<Record<string, number>>((acc, o) => ({ ...acc, [o.kind]: (acc[o.kind] ?? 0) + 1 }), {});
 
 console.log(`✓ ${out}`);
-console.log(`  ${meetings.length} اجتماعات · ${agenda.length} محاور ثابتة · ${decisions} قرارًا · ${policies.length} سياسة`);
+console.log(`  ${meetings.length} اجتماعات · ${agenda.length} محاور ثابتة · ${decisions} قرارًا · ${policies.length} سياسة · ${columns.length} أعمدة`);
 console.log(`  الأنواع: ${Object.entries(byKind).map(([k, v]) => `${k} ${v}`).join(' · ')}`);

@@ -137,7 +137,7 @@ export function policyFromOutcome(
   boardId: string,
   meetingId: string,
   outcomeId: string,
-  options: { amends?: string | null; sectionId?: string | null } = {},
+  options: { amends?: string | null; columnId?: string | null } = {},
 ): string | null {
   const board = store.get().boards[boardId]?.board;
   const outcome = board?.meetings?.find((m) => m.id === meetingId)?.outcomes?.find((o) => o.id === outcomeId);
@@ -156,7 +156,7 @@ export function policyFromOutcome(
         policy: {
           id: policyId,
           text: outcome.text,
-          sectionId: options.sectionId ?? null,
+          columnId: options.columnId ?? null,
           meetingId,
           at: Date.now(),
         },

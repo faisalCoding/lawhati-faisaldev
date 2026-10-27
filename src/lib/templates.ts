@@ -11,6 +11,8 @@ export const DEFAULT_POWER_UPS: PowerUps = {
   checklists: true,
   covers: false,
   wipLimits: false,
+  // Off until a board needs it: most boards are tasks and nothing else.
+  meetings: false,
 };
 
 export interface BoardTemplate {
@@ -37,7 +39,7 @@ export const TEMPLATES: BoardTemplate[] = [
     icon: 'briefcase',
     hint: 'مع التسميات والمواعيد وحدود العمل',
     lists: ['أفكار', 'للتنفيذ', 'قيد العمل', 'مراجعة', 'مكتمل'],
-    powerUps: { labels: true, dueDates: true, wipLimits: true },
+    powerUps: { labels: true, dueDates: true, wipLimits: true, meetings: false },
   },
   {
     id: 'travel',

@@ -7,12 +7,12 @@ import { isOpen, openBefore } from '../src/lib/meetings';
 import { subjectHistory } from '../src/lib/subjects';
 import { stillApplies, undoOf } from '../src/shared/activity';
 import { applyOp } from '../src/shared/reducer';
-import type { AgendaSubject, Board, Meeting, MeetingTopic, Outcome, Op, Policy, PolicySection } from '../src/shared/types';
+import type { AgendaSubject, Board, BoardColumn, Meeting, MeetingTopic, Outcome, Op, Policy } from '../src/shared/types';
 
 const board = (): Board => ({
   id: 'b', title: 'لوحة', color: '#000', icon: 'grid',
   lists: [], cards: {}, labels: [],
-  powerUps: { labels: true, dueDates: true, checklists: true, covers: true, wipLimits: false },
+  powerUps: { labels: true, dueDates: true, checklists: true, covers: true, wipLimits: false, meetings: false },
   shareCode: 'ABCDEF', createdAt: 1, updatedAt: 1,
 });
 
@@ -223,7 +223,7 @@ const strip = (b: Board) =>
     })),
     policies: (b.policies ?? []).map((x) => ({
       ...x,
-      sectionId: x.sectionId ?? null,
+      columnId: x.columnId ?? null,
       meetingId: x.meetingId ?? null,
     })),
   });
@@ -331,24 +331,24 @@ roundTrip(withOutcomeUnderTopic, op({ type: 'outcome/update', meetingId: 'a', ou
 
 
 // ── السياسات ────────────────────────────────────────────────────────────────
-const section = (id: string, title = `قسم ${id}`): PolicySection => ({ id, title });
-const policy = (id: string, text = `سياسة ${id}`, sectionId: string | null = null): Policy =>
-  ({ id, text, sectionId, at: 1 });
+const column = (id: string, title = `عمود ${id}`, kind: BoardColumn['kind'] = 'policies'): BoardColumn => ({ id, title, kind });
+const policy = (id: string, text = `سياسة ${id}`, columnId: string | null = null): Policy =>
+  ({ id, text, columnId, at: 1 });
 const polsOf = (b: Board) => (b.policies ?? []).map((x) => x.id).join('');
-const secsOf = (b: Board) => (b.policySections ?? []).map((x) => x.id).join('');
+const colsOf = (b: Board) => (b.columns ?? []).map((c) => c.id).join('');
 
-const sec = applyOp(applyOp(board(), op({ type: 'section/add', section: section('c1', 'الرحلات') })),
-                    op({ type: 'section/add', section: section('c2', 'الحضور والغياب') }));
-ok('تُضاف أقسام السياسات', secsOf(sec) === 'c1c2');
-ok('بلا تكرار', applyOp(sec, op({ type: 'section/add', section: section('c1') })) === sec);
-ok('وتُرتَّب', secsOf(applyOp(sec, op({ type: 'section/move', sectionId: 'c2', toIndex: 0 }))) === 'c2c1');
+const sec = applyOp(applyOp(board(), op({ type: 'column/add', column: column('c1', 'الرحلات') })),
+                    op({ type: 'column/add', column: column('c2', 'الحضور والغياب') }));
+ok('تُضاف أعمدة السياسات', colsOf(sec) === 'c1c2');
+ok('بلا تكرار', applyOp(sec, op({ type: 'column/add', column: column('c1', 'الرحلات') })) === sec);
+ok('وتُرتَّب', colsOf(applyOp(sec, op({ type: 'column/move', columnId: 'c2', toIndex: 0 }))) === 'c2c1');
 
 const pol = applyOp(
   applyOp(sec, op({ type: 'policy/add', policy: policy('p1', 'يُمنع الالتحاق عند التأخر', 'c1') })),
   op({ type: 'policy/add', policy: policy('p2', 'حد التأخر بلا عذر', 'c2') }),
 );
 ok('تُضاف السياسات', polsOf(pol) === 'p1p2');
-ok('ويُذكر قسمها في النشاط', (pol.activity?.at(-1)?.what as { section: string }).section === 'الحضور والغياب');
+ok('ويُذكر عمودها في النشاط', (pol.activity?.at(-1)?.what as { column: string }).column === 'الحضور والغياب');
 
 const amended = applyOp(pol, op({ type: 'policy/update', policyId: 'p2', patch: { text: 'يمكن تعويض تأخّرات الأسبوع نفسه' } }));
 ok('تُعدَّل السياسة', (amended.policies ?? [])[1].text === 'يمكن تعويض تأخّرات الأسبوع نفسه');
@@ -356,10 +356,10 @@ ok('ويُحفظ نصّها السابق في السجلّ', (amended.activity?.
 ok('نفس النصّ لا يغيّر شيئًا', applyOp(amended, op({ type: 'policy/update', policyId: 'p2', patch: { text: 'يمكن تعويض تأخّرات الأسبوع نفسه' } })) === amended);
 
 // حذف القسم لا يحذف سياساته
-const cutSec = applyOp(pol, op({ type: 'section/remove', sectionId: 'c1' }));
-ok('حذف القسم يُبقي سياساته', polsOf(cutSec) === 'p1p2');
-ok('وتصير بلا قسم لا معلّقة', (cutSec.policies ?? [])[0].sectionId === null);
-ok('ويُذكر عددها في السجلّ', (cutSec.activity?.at(-1)?.what as { policies: number }).policies === 1);
+const cutSec = applyOp(pol, op({ type: 'column/remove', columnId: 'c1', moveTo: 'c2' }));
+ok('حذف العمود مع النقل يُبقي سياساته', polsOf(cutSec) === 'p1p2');
+ok('وتنتقل إلى العمود الآخر', (cutSec.policies ?? [])[0].columnId === 'c2');
+ok('ويُذكر عددها وإلى أين ذهبت', (cutSec.activity?.at(-1)?.what as { cards: number; movedTo: string }).cards === 1);
 
 // من الاجتماع إلى السياسات
 const mt = applyOp(pol, op({ type: 'meeting/add', meeting: meeting('a', '2026-01-10') }));
@@ -371,7 +371,7 @@ const withPolicyOutcome = applyOp(mt, op({
 // «إقرار» من «تعديل»: بعد الكتابة تصير كل سياسة موجودة فلا يُفرَّق بين الحالتين.
 const newPolicy = applyOp(
   applyOp(withPolicyOutcome, op({ type: 'outcome/update', meetingId: 'a', outcomeId: 'po1', patch: { policyId: 'p9' } })),
-  op({ type: 'policy/add', policy: { id: 'p9', text: 'حد التعثّر القرآني', sectionId: 'c1', meetingId: 'a', at: 2 } }),
+  op({ type: 'policy/add', policy: { id: 'p9', text: 'حد التعثّر القرآني', columnId: 'c1', meetingId: 'a', at: 2 } }),
 );
 ok('السياسة تحفظ الاجتماع الذي أقرّها', (newPolicy.policies ?? []).find((x) => x.id === 'p9')?.meetingId === 'a');
 ok('ويُسجَّل إقرارًا لا تعديلًا', (newPolicy.activity?.find((e) => e.what.type === 'outcome/policy')?.what as { added: boolean }).added === true);
@@ -383,12 +383,13 @@ const amendExisting = applyOp(
 ok('وتعديل سياسة قائمة يُسجَّل تعديلًا', (amendExisting.activity?.find((e) => e.what.type === 'outcome/policy')?.what as { added: boolean }).added === false);
 
 // التراجع
-roundTripP(sec, op({ type: 'section/add', section: section('c3') }), 'إضافة قسم');
-roundTripP(sec, op({ type: 'section/update', sectionId: 'c1', patch: { title: 'الرحلات والمخيمات' } }), 'تعديل اسم قسم');
-roundTripP(sec, op({ type: 'section/move', sectionId: 'c1', toIndex: 1 }), 'ترتيب قسم');
-roundTripP(pol, op({ type: 'section/remove', sectionId: 'c1' }), 'حذف قسم بسياساته');
+roundTripP(sec, op({ type: 'column/add', column: column('c3') }), 'إضافة عمود');
+roundTripP(sec, op({ type: 'column/update', columnId: 'c1', patch: { title: 'الرحلات والمخيمات' } }), 'تعديل اسم عمود');
+roundTripP(sec, op({ type: 'column/move', columnId: 'c1', toIndex: 1 }), 'ترتيب عمود');
+roundTripP(pol, op({ type: 'column/remove', columnId: 'c1', moveTo: 'c2' }), 'حذف عمود مع نقل محتواه');
+roundTripP(pol, op({ type: 'column/remove', columnId: 'c1' }), 'حذف عمود وما فيه');
 roundTripP(pol, op({ type: 'policy/add', policy: policy('p3') }), 'إضافة سياسة');
-roundTripP(pol, op({ type: 'policy/update', policyId: 'p1', patch: { text: 'نصّ آخر', sectionId: 'c2' } }), 'تعديل سياسة ونقلها');
+roundTripP(pol, op({ type: 'policy/update', policyId: 'p1', patch: { text: 'نصّ آخر', columnId: 'c2' } }), 'تعديل سياسة ونقلها');
 roundTripP(pol, op({ type: 'policy/move', policyId: 'p1', toIndex: 1 }), 'ترتيب سياسة');
 roundTripP(pol, op({ type: 'policy/remove', policyId: 'p1' }), 'حذف سياسة');
 
@@ -477,6 +478,39 @@ ok('وموضوع غير موجود يُعيد عدمًا', subjectHistory(hist, 
 // حذف الموضوع الثابت يقطع الخيط، فلا يُجمَع بعده
 const cut = applyOp(hist, op({ type: 'agenda/remove', subjectId: 'S' }));
 ok('وبعد حذف الموضوع لا يبقى ما يُجمَع', subjectHistory(cut, 'S') === null);
+
+
+// ── الأعمدة: ما اتفقنا عليه بالضبط ─────────────────────────────────────────
+let cols = applyOp(board(), op({ type: 'column/add', column: column('k1', 'الاجتماعات', 'meetings') }));
+cols = applyOp(cols, op({ type: 'column/add', column: column('k2', 'الأرشيف', 'meetings') }));
+cols = applyOp(cols, op({ type: 'column/add', column: column('k3', 'الرحلات', 'policies') }));
+ok('تتعايش أعمدة الاجتماعات والسياسات في ترتيب واحد', colsOf(cols) === 'k1k2k3');
+
+for (const [id, date] of [['n1', '2026-03-01'], ['n2', '2026-03-15'], ['n3', '2026-03-08']] as const) {
+  cols = applyOp(cols, op({ type: 'meeting/add', meeting: { ...meeting(id, date), columnId: 'k1' } }));
+}
+const inCol = (b: Board, k: string) => (b.meetings ?? []).filter((m) => m.columnId === k).map((m) => m.id).join('');
+ok('الاجتماعات في عمودها مرتّبة بالتاريخ لا بالإدخال', inCol(cols, 'k1') === 'n2n3n1');
+
+// النقل بين الأعمدة تصنيف، والتاريخ يبقى هو الترتيب
+const refiled = applyOp(cols, op({ type: 'meeting/update', meetingId: 'n3', patch: { columnId: 'k2' } }));
+ok('نقل اجتماع إلى عمود آخر', inCol(refiled, 'k1') === 'n2n1' && inCol(refiled, 'k2') === 'n3');
+ok('ويُسجَّل نقلًا باسم العمود', (refiled.activity?.at(-1)?.what as { column: string }).column === 'الأرشيف');
+
+// حذف عمود اجتماعات: الخياران
+const kept = applyOp(cols, op({ type: 'column/remove', columnId: 'k1', moveTo: 'k2' }));
+ok('الحذف مع النقل يُبقي الاجتماعات كلها', (kept.meetings ?? []).length === 3 && inCol(kept, 'k2') === 'n2n3n1');
+const destroyed = applyOp(cols, op({ type: 'column/remove', columnId: 'k1' }));
+ok('والحذف بلا نقل يأخذها معه', (destroyed.meetings ?? []).length === 0);
+ok('ويقول النشاط كم أُتلف', (destroyed.activity?.at(-1)?.what as { cards: number; movedTo: null }).cards === 3);
+
+// لا يُنقل إلى عمود من نوع آخر
+const wrongKind = applyOp(cols, op({ type: 'column/remove', columnId: 'k1', moveTo: 'k3' }));
+ok('ولا يُنقل اجتماع إلى عمود سياسات', (wrongKind.meetings ?? []).length === 0);
+
+roundTripP(cols, op({ type: 'column/remove', columnId: 'k1', moveTo: 'k2' }), 'حذف عمود اجتماعات مع النقل');
+roundTripP(cols, op({ type: 'column/remove', columnId: 'k1' }), 'حذف عمود اجتماعات وما فيه');
+roundTripP(cols, op({ type: 'meeting/update', meetingId: 'n1', patch: { columnId: 'k2' } }), 'نقل اجتماع بين عمودين');
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);

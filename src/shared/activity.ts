@@ -33,7 +33,7 @@ export const BOARD_FIELDS = ['title', 'color', 'icon', 'buttons'] as const;
 export const LIST_FIELDS = ['title', 'wipLimit'] as const;
 export const CARD_FIELDS = ['title', 'description', 'due', 'dueDone', 'cover', 'link', 'assignees'] as const;
 export const CHECK_FIELDS = ['text', 'done', 'assignee'] as const;
-export const MEETING_FIELDS = ['title', 'date', 'place'] as const;
+export const MEETING_FIELDS = ['title', 'date', 'place', 'columnId'] as const;
 export const TOPIC_FIELDS = ['title', 'notes'] as const;
 export const OUTCOME_FIELDS = [
   'kind',
@@ -45,7 +45,7 @@ export const OUTCOME_FIELDS = [
   'policyId',
   'done',
 ] as const;
-export const POLICY_FIELDS = ['text', 'sectionId', 'meetingId'] as const;
+export const POLICY_FIELDS = ['text', 'columnId', 'meetingId'] as const;
 
 type BoardField = (typeof BOARD_FIELDS)[number];
 type CardField = (typeof CARD_FIELDS)[number];
@@ -59,7 +59,14 @@ export const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JS
 
 /** A meeting's field as every version reads it: `place` is optional and counts as empty. */
 export function meetingField(meeting: Meeting, key: MeetingField): unknown {
-  return key === 'place' ? (meeting.place ?? '') : meeting[key];
+  switch (key) {
+    case 'place':
+      return meeting.place ?? '';
+    case 'columnId':
+      return meeting.columnId ?? null;
+    default:
+      return meeting[key];
+  }
 }
 
 /** An outcome's field as every version reads it: the task-only fields count as empty otherwise. */
@@ -85,8 +92,8 @@ export function outcomeField(outcome: Outcome, key: OutcomeField): unknown {
 /** A policy's field as every version reads it: an unfiled rule and one with no meeting read null. */
 export function policyField(policy: Policy, key: PolicyField): unknown {
   switch (key) {
-    case 'sectionId':
-      return policy.sectionId ?? null;
+    case 'columnId':
+      return policy.columnId ?? null;
     case 'meetingId':
       return policy.meetingId ?? null;
     default:
@@ -164,6 +171,10 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
       if (was.title !== now.title) return { type: 'meeting/title', meeting: now.title, from: was.title };
       if (was.date !== now.date) return { type: 'meeting/when', meeting: now.title, date: now.date };
       if ((was.place ?? '') !== (now.place ?? '')) return { type: 'meeting/where', meeting: now.title };
+      if ((was.columnId ?? null) !== (now.columnId ?? null)) {
+        const column = (after.columns ?? []).find((c) => c.id === now.columnId);
+        return { type: 'meeting/file', meeting: now.title, column: column?.title ?? null };
+      }
       return null;
     }
     case 'meeting/remove': {
@@ -262,34 +273,39 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
       const subject = (before.agenda ?? []).find((a) => a.id === op.subjectId);
       return subject ? { type: 'agenda/remove', subject: subject.title } : null;
     }
-    case 'section/add':
-      return { type: 'section/add', section: op.section.title };
-    case 'section/update': {
-      const was = (before.policySections ?? []).find((x) => x.id === op.sectionId);
-      const now = (after.policySections ?? []).find((x) => x.id === op.sectionId);
-      return was && now && was.title !== now.title ? { type: 'section/title', section: now.title, from: was.title } : null;
+    case 'column/add':
+      return { type: 'column/add', column: op.column.title, kind: op.column.kind };
+    case 'column/update': {
+      const was = (before.columns ?? []).find((c) => c.id === op.columnId);
+      const now = (after.columns ?? []).find((c) => c.id === op.columnId);
+      return was && now && was.title !== now.title ? { type: 'column/title', column: now.title, from: was.title } : null;
     }
-    case 'section/move': {
-      const section = (after.policySections ?? []).find((x) => x.id === op.sectionId);
-      return section ? { type: 'section/move', section: section.title } : null;
+    case 'column/move': {
+      const column = (after.columns ?? []).find((c) => c.id === op.columnId);
+      return column ? { type: 'column/move', column: column.title } : null;
     }
-    case 'section/remove': {
-      const section = (before.policySections ?? []).find((x) => x.id === op.sectionId);
-      const count = (before.policies ?? []).filter((x) => x.sectionId === op.sectionId).length;
-      return section ? { type: 'section/remove', section: section.title, policies: count } : null;
+    case 'column/remove': {
+      const column = (before.columns ?? []).find((c) => c.id === op.columnId);
+      if (!column) return null;
+      const held =
+        column.kind === 'meetings'
+          ? (before.meetings ?? []).filter((m) => (m.columnId ?? null) === op.columnId).length
+          : (before.policies ?? []).filter((x) => (x.columnId ?? null) === op.columnId).length;
+      const moved = (after.columns ?? []).find((c) => c.id === op.moveTo);
+      return { type: 'column/remove', column: column.title, cards: held, movedTo: moved?.title ?? null };
     }
     case 'policy/add': {
-      const section = (after.policySections ?? []).find((x) => x.id === op.policy.sectionId);
-      return { type: 'policy/add', policy: op.policy.text, section: section?.title ?? null };
+      const column = (after.columns ?? []).find((c) => c.id === op.policy.columnId);
+      return { type: 'policy/add', policy: op.policy.text, column: column?.title ?? null };
     }
     case 'policy/update': {
       const was = (before.policies ?? []).find((x) => x.id === op.policyId);
       const now = (after.policies ?? []).find((x) => x.id === op.policyId);
       if (!was || !now) return null;
       if (was.text !== now.text) return { type: 'policy/text', policy: now.text, from: was.text };
-      if ((was.sectionId ?? null) !== (now.sectionId ?? null)) {
-        const section = (after.policySections ?? []).find((x) => x.id === now.sectionId);
-        return { type: 'policy/file', policy: now.text, section: section?.title ?? null };
+      if ((was.columnId ?? null) !== (now.columnId ?? null)) {
+        const column = (after.columns ?? []).find((c) => c.id === now.columnId);
+        return { type: 'policy/file', policy: now.text, column: column?.title ?? null };
       }
       return null;
     }
@@ -504,29 +520,52 @@ export function undoOf(before: Board, after: Board, op: Op): UndoStep[] {
       const from = (before.agenda ?? []).findIndex((a) => a.id === op.subjectId);
       return from < 0 ? [] : [{ op: { type: 'agenda/move', subjectId: op.subjectId, toIndex: from } }];
     }
-    case 'section/add':
-      return [{ op: { type: 'section/remove', sectionId: op.section.id } }];
-    case 'section/update': {
-      const was = (before.policySections ?? []).find((x) => x.id === op.sectionId);
+    case 'column/add':
+      return [{ op: { type: 'column/remove', columnId: op.column.id } }];
+    case 'column/update': {
+      const was = (before.columns ?? []).find((c) => c.id === op.columnId);
       return was && op.patch.title !== undefined && was.title !== op.patch.title
-        ? [{ op: { type: 'section/update', sectionId: op.sectionId, patch: { title: was.title } }, expect: { title: op.patch.title } }]
+        ? [{ op: { type: 'column/update', columnId: op.columnId, patch: { title: was.title } }, expect: { title: op.patch.title } }]
         : [];
     }
-    case 'section/move': {
-      const from = (before.policySections ?? []).findIndex((x) => x.id === op.sectionId);
-      return from < 0 ? [] : [{ op: { type: 'section/move', sectionId: op.sectionId, toIndex: from } }];
+    case 'column/move': {
+      const from = (before.columns ?? []).findIndex((c) => c.id === op.columnId);
+      return from < 0 ? [] : [{ op: { type: 'column/move', columnId: op.columnId, toIndex: from } }];
     }
-    case 'section/remove': {
-      const sections = before.policySections ?? [];
-      const index = sections.findIndex((x) => x.id === op.sectionId);
-      if (index < 0) return [];
-      // The heading comes back, and every rule that was under it goes back under it.
-      return [
-        { op: { type: 'section/add', section: sections[index], index } },
-        ...(before.policies ?? [])
-          .filter((x) => x.sectionId === op.sectionId)
-          .map((x): UndoStep => ({ op: { type: 'policy/update', policyId: x.id, patch: { sectionId: op.sectionId } } })),
+    case 'column/remove': {
+      const columns = before.columns ?? [];
+      const index = columns.findIndex((c) => c.id === op.columnId);
+      const column = columns[index];
+      if (!column) return [];
+      const mine = (id: string | null | undefined) => (id ?? null) === op.columnId;
+      // The column comes back in its place, then everything that was in it — put back where it
+      // was whether it had been moved aside or destroyed with it.
+      const steps: UndoStep[] = [
+        { op: { type: 'column/add', column, index } },
+        { op: { type: 'column/move', columnId: column.id, toIndex: index } },
       ];
+      if (column.kind === 'meetings') {
+        for (const m of before.meetings ?? []) {
+          if (!mine(m.columnId)) continue;
+          steps.push(
+            op.moveTo
+              ? { op: { type: 'meeting/update', meetingId: m.id, patch: { columnId: column.id } } }
+              : { op: { type: 'meeting/add', meeting: m } },
+          );
+        }
+      } else {
+        // With its index: a rule's place in the board is its order, and `policy/add` without one
+        // appends. Meetings need no index — they sort themselves by date on the way back in.
+        (before.policies ?? []).forEach((x, i) => {
+          if (!mine(x.columnId)) return;
+          steps.push(
+            op.moveTo
+              ? { op: { type: 'policy/update', policyId: x.id, patch: { columnId: column.id } } }
+              : { op: { type: 'policy/add', policy: x, index: i } },
+          );
+        });
+      }
+      return steps;
     }
 
     case 'policy/add':
@@ -883,14 +922,14 @@ export function stillApplies(board: Board, step: UndoStep): OpInput | null {
       return subject && (!expect || same(subject.title, expect.title)) ? op : null;
     }
 
-    case 'section/add':
-      return (board.policySections ?? []).some((x) => x.id === op.section.id) ? null : op;
-    case 'section/move':
-    case 'section/remove':
-      return (board.policySections ?? []).some((x) => x.id === op.sectionId) ? op : null;
-    case 'section/update': {
-      const section = (board.policySections ?? []).find((x) => x.id === op.sectionId);
-      return section && (!expect || same(section.title, expect.title)) ? op : null;
+    case 'column/add':
+      return (board.columns ?? []).some((c) => c.id === op.column.id) ? null : op;
+    case 'column/move':
+    case 'column/remove':
+      return (board.columns ?? []).some((c) => c.id === op.columnId) ? op : null;
+    case 'column/update': {
+      const column = (board.columns ?? []).find((c) => c.id === op.columnId);
+      return column && (!expect || same(column.title, expect.title)) ? op : null;
     }
     case 'policy/add':
       return (board.policies ?? []).some((x) => x.id === op.policy.id) ? null : op;

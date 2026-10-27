@@ -12,9 +12,18 @@ import { uid } from '../../../lib/ids';
 import { goBack } from '../../../lib/nav';
 import { pluralPolicies } from '../../../lib/text';
 import { colors } from '../../../lib/theme';
-import type { Board, Policy, PolicySection } from '../../../shared/types';
+import type { Board, BoardColumn, Policy } from '../../../shared/types';
 import { dispatch } from '../../../store/actions';
 import { useBoard } from '../../../store/store';
+
+/** Built outside the component: reading the clock is not something to do while rendering. */
+const newPolicy = (text: string, columnId: string | null): Policy => ({
+  id: uid(),
+  text,
+  columnId,
+  meetingId: null,
+  at: Date.now(),
+});
 
 /**
  * The standing rules this board works by, filed under headings.
@@ -38,14 +47,15 @@ export default function PoliciesScreen() {
   }
 
   const policies = board.policies ?? [];
-  const sections = board.policySections ?? [];
+  // Only the policy columns: the board's meeting columns are not headings for rules.
+  const sections = (board.columns ?? []).filter((c) => c.kind === 'policies');
 
   const groups = [
-    ...sections.map((x) => ({ id: x.id as string | null, title: x.title, items: policies.filter((p) => p.sectionId === x.id) })),
+    ...sections.map((x) => ({ id: x.id as string | null, title: x.title, items: policies.filter((p) => p.columnId === x.id) })),
     {
       id: null,
       title: 'بلا قسم',
-      items: policies.filter((p) => !p.sectionId || !sections.some((x) => x.id === p.sectionId)),
+      items: policies.filter((p) => !p.columnId || !sections.some((x) => x.id === p.columnId)),
     },
   ].filter((g) => g.items.length > 0);
 
@@ -54,13 +64,7 @@ export default function PoliciesScreen() {
     if (!text) return;
     dispatch(id, {
       type: 'policy/add',
-      policy: {
-        id: uid(),
-        text,
-        sectionId: sections.some((x) => x.id === filing) ? filing : null,
-        meetingId: null,
-        at: Date.now(),
-      },
+      policy: newPolicy(text, sections.some((x) => x.id === filing) ? filing : null),
     });
     setDraft('');
   };
@@ -121,7 +125,7 @@ export default function PoliciesScreen() {
   );
 }
 
-function Row({ board, policy, sections }: { board: Board; policy: Policy; sections: PolicySection[] }) {
+function Row({ board, policy, sections }: { board: Board; policy: Policy; sections: BoardColumn[] }) {
   const [filing, setFiling] = useState(false);
   const meeting = policy.meetingId ? board.meetings?.find((m) => m.id === policy.meetingId) : undefined;
 
@@ -162,9 +166,9 @@ function Row({ board, policy, sections }: { board: Board; policy: Policy; sectio
         <View style={styles.wrapRow}>
           <Chip
             label="بلا قسم"
-            selected={!policy.sectionId}
+            selected={!policy.columnId}
             onPress={() => {
-              dispatch(board.id, { type: 'policy/update', policyId: policy.id, patch: { sectionId: null } });
+              dispatch(board.id, { type: 'policy/update', policyId: policy.id, patch: { columnId: null } });
               setFiling(false);
             }}
           />
@@ -172,9 +176,9 @@ function Row({ board, policy, sections }: { board: Board; policy: Policy; sectio
             <Chip
               key={x.id}
               label={x.title}
-              selected={policy.sectionId === x.id}
+              selected={policy.columnId === x.id}
               onPress={() => {
-                dispatch(board.id, { type: 'policy/update', policyId: policy.id, patch: { sectionId: x.id } });
+                dispatch(board.id, { type: 'policy/update', policyId: policy.id, patch: { columnId: x.id } });
                 setFiling(false);
               }}
             />
@@ -185,17 +189,17 @@ function Row({ board, policy, sections }: { board: Board; policy: Policy; sectio
   );
 }
 
-function SectionsEditor({ boardId, sections }: { boardId: string; sections: PolicySection[] }) {
+function SectionsEditor({ boardId, sections }: { boardId: string; sections: BoardColumn[] }) {
   const [draft, setDraft] = useState('');
 
   const add = () => {
     const title = draft.trim();
     if (!title) return;
-    dispatch(boardId, { type: 'section/add', section: { id: uid(), title } });
+    dispatch(boardId, { type: 'column/add', column: { id: uid(), title, kind: 'policies' } });
     setDraft('');
   };
 
-  const move = (sectionId: string, to: number) => dispatch(boardId, { type: 'section/move', sectionId, toIndex: to });
+  const move = (sectionId: string, to: number) => dispatch(boardId, { type: 'column/move', columnId: sectionId, toIndex: to });
 
   return (
     <Section title="الأقسام" icon="layers" right={<Txt style={styles.count}>{sections.length}</Txt>}>
@@ -207,7 +211,7 @@ function SectionsEditor({ boardId, sections }: { boardId: string; sections: Poli
           <View key={x.id} style={styles.sectionRow}>
             <EditableText
               value={x.title}
-              onCommit={(title) => dispatch(boardId, { type: 'section/update', sectionId: x.id, patch: { title } })}
+              onCommit={(title) => dispatch(boardId, { type: 'column/update', columnId: x.id, patch: { title } })}
               required
               placeholder="اسم القسم"
               style={styles.sectionTitle}
@@ -222,7 +226,7 @@ function SectionsEditor({ boardId, sections }: { boardId: string; sections: Poli
             <IconButton
               name="trash"
               label="حذف القسم"
-              onPress={() => dispatch(boardId, { type: 'section/remove', sectionId: x.id })}
+              onPress={() => dispatch(boardId, { type: 'column/remove', columnId: x.id, moveTo: sections.find((o) => o.id !== x.id)?.id ?? null })}
             />
           </View>
         ))}

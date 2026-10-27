@@ -350,44 +350,55 @@ function reduce(board: Board, op: Op): Board {
       return { ...board, agenda: next };
     }
 
-    case 'section/add': {
-      const sections = board.policySections ?? [];
-      if (sections.some((x) => x.id === op.section.id)) return board;
-      return { ...board, policySections: insertAt(sections, op.index ?? sections.length, op.section) };
+    case 'column/add': {
+      const columns = board.columns ?? [];
+      if (columns.some((c) => c.id === op.column.id)) return board;
+      return { ...board, columns: insertAt(columns, op.index ?? columns.length, op.column) };
     }
 
-    case 'section/update': {
-      const sections = board.policySections ?? [];
-      const index = sections.findIndex((x) => x.id === op.sectionId);
-      if (index < 0 || op.patch.title === undefined || sections[index].title === op.patch.title) return board;
-      const next = sections.slice();
+    case 'column/update': {
+      const columns = board.columns ?? [];
+      const index = columns.findIndex((c) => c.id === op.columnId);
+      if (index < 0 || op.patch.title === undefined || columns[index].title === op.patch.title) return board;
+      const next = columns.slice();
       next[index] = { ...next[index], title: op.patch.title };
-      return { ...board, policySections: next };
+      return { ...board, columns: next };
     }
 
-    case 'section/move': {
-      const sections = board.policySections ?? [];
-      const from = sections.findIndex((x) => x.id === op.sectionId);
+    case 'column/move': {
+      const columns = board.columns ?? [];
+      const from = columns.findIndex((c) => c.id === op.columnId);
       if (from < 0) return board;
-      const to = clampIndex(op.toIndex, sections.length - 1);
+      const to = clampIndex(op.toIndex, columns.length - 1);
       if (from === to) return board;
-      const next = sections.slice();
+      const next = columns.slice();
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);
-      return { ...board, policySections: next };
+      return { ...board, columns: next };
     }
 
-    case 'section/remove': {
-      const sections = board.policySections ?? [];
-      if (!sections.some((x) => x.id === op.sectionId)) return board;
-      // Its rules are not deleted with the heading: they become unfiled. Losing a rule because a
-      // heading was tidied away would be the worst thing this board could do.
-      const policies = board.policies?.map((x) => (x.sectionId === op.sectionId ? { ...x, sectionId: null } : x));
-      return {
-        ...board,
-        policySections: sections.filter((x) => x.id !== op.sectionId),
-        ...(policies ? { policies } : {}),
-      };
+    case 'column/remove': {
+      const columns = board.columns ?? [];
+      const column = columns.find((c) => c.id === op.columnId);
+      if (!column) return board;
+      const rest = columns.filter((c) => c.id !== op.columnId);
+
+      // Everything filed here either moves, or goes with the column. Which one was asked for
+      // before the operation was ever made; the reducer only carries it out.
+      const moveTo = op.moveTo && rest.some((c) => c.id === op.moveTo && c.kind === column.kind) ? op.moveTo : null;
+      const mine = <T extends { columnId?: string | null }>(x: T) => (x.columnId ?? null) === op.columnId;
+
+      const next: Board = { ...board, columns: rest };
+      if (column.kind === 'meetings') {
+        next.meetings = moveTo
+          ? (board.meetings ?? []).map((m) => (mine(m) ? { ...m, columnId: moveTo } : m))
+          : (board.meetings ?? []).filter((m) => !mine(m));
+      } else {
+        next.policies = moveTo
+          ? (board.policies ?? []).map((x) => (mine(x) ? { ...x, columnId: moveTo } : x))
+          : (board.policies ?? []).filter((x) => !mine(x));
+      }
+      return next;
     }
 
     case 'policy/add': {
