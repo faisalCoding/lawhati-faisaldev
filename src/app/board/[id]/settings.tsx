@@ -18,11 +18,13 @@ import { goBack } from '../../../lib/nav';
 import { syncErrorMessage } from '../../../lib/syncErrors';
 import { BOARD_COLORS, colors } from '../../../lib/theme';
 import type { PowerUpKey } from '../../../shared/types';
-import { deleteBoard, dispatch, shareBoard, unlinkBoard } from '../../../store/actions';
+import { deleteBoard, dispatch, setMeetingsPowerUp, shareBoard, unlinkBoard } from '../../../store/actions';
 import { useAppState, useBoardEntry } from '../../../store/store';
 import { currentServerUrl } from '../../../store/sync';
 
 // Checklists are not here: every board has them.
+// A board made before a key existed simply lacks it, and absent means off — never undefined,
+// which would leave the switch not knowing its own state.
 const POWER_UPS: { key: PowerUpKey; icon: IconName; title: string; description: string }[] = [
   { key: 'labels', icon: 'tag', title: 'التسميات', description: 'صنّف البطاقات بألوان وأسماء مثل «عاجل» و«فكرة».' },
   {
@@ -37,6 +39,12 @@ const POWER_UPS: { key: PowerUpKey; icon: IconName; title: string; description: 
     icon: 'gauge',
     title: 'حدود العمل (WIP)',
     description: 'حدّد أقصى عدد من البطاقات في كل قائمة، وهي جوهر منهجية كانبان.',
+  },
+  {
+    key: 'meetings',
+    icon: 'calendar',
+    title: 'الاجتماعات والسياسات',
+    description: 'أعمدة في آخر اللوحة: اجتماعاتها بمحاورها وتوصياتها، والقواعد التي استقرّت عليها.',
   },
 ];
 
@@ -139,8 +147,12 @@ export default function BoardSettingsScreen() {
                   icon={p.icon}
                   title={p.title}
                   description={p.description}
-                  value={board.powerUps[p.key]}
-                  onChange={(enabled) => dispatch(board.id, { type: 'powerUp/set', key: p.key, enabled })}
+                  value={board.powerUps[p.key] ?? false}
+                  onChange={(enabled) =>
+                    p.key === 'meetings'
+                      ? setMeetingsPowerUp(board.id, enabled)
+                      : dispatch(board.id, { type: 'powerUp/set', key: p.key, enabled })
+                  }
                 />
               </View>
             ))}

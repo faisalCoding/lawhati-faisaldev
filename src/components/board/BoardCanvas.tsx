@@ -6,11 +6,13 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-na
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { haptic } from '../../lib/haptics';
+import { uid } from '../../lib/ids';
 import { newList } from '../../lib/templates';
 import { LIST_GAP, LIST_WIDTH } from '../../lib/theme';
-import type { Board, Card, CardLink, List, OpInput } from '../../shared/types';
+import type { Board, BoardColumnKind, Card, CardLink, List, OpInput } from '../../shared/types';
 import { dispatch } from '../../store/actions';
 import { AddListColumn } from './AddListColumn';
+import { RecordColumn } from './RecordColumn';
 import { CardFace } from './CardFace';
 import { Column, ColumnPreview } from './Column';
 import { CARD_GAP, CARDS_PADDING_H, CARDS_PADDING_TOP, createGeometry, listGeometry, type BoardApi } from './boardApi';
@@ -542,7 +544,28 @@ export function BoardCanvas({
         keyboardShouldPersistTaps="handled"
       >
         {columns}
-        <AddListColumn onAdd={(title) => api.dispatch({ type: 'list/add', list: newList(title) })} />
+        {/* After the task lists, at the far end of the board: a record is read, not worked. */}
+        {board.powerUps.meetings
+          ? (board.columns ?? []).map((column, i) => (
+              <RecordColumn
+                key={column.id}
+                board={board}
+                column={column}
+                index={i}
+                count={(board.columns ?? []).length}
+                maxHeight={maxColumnHeight}
+              />
+            ))
+          : null}
+        <AddListColumn
+          onAdd={(title) => api.dispatch({ type: 'list/add', list: newList(title) })}
+          onAddColumn={
+            board.powerUps.meetings
+              ? (title: string, kind: BoardColumnKind) =>
+                  api.dispatch({ type: 'column/add', column: { id: uid(), title, kind } })
+              : undefined
+          }
+        />
       </ScrollView>
 
       {drag && dragCard ? (

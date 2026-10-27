@@ -68,11 +68,25 @@ export function dispatch(boardId: string, input: OpInput) {
  *
  * Returns the new meeting's id.
  */
-export function startMeeting(boardId: string, title: string, date: string): string | null {
+export function startMeeting(
+  boardId: string,
+  title: string,
+  date: string,
+  columnId: string | null = null,
+): string | null {
   const board = store.get().boards[boardId]?.board;
   if (!board) return null;
 
-  const meeting: Meeting = { id: uid(), title, date, attendees: [], topics: [], outcomes: [], createdAt: Date.now() };
+  const meeting: Meeting = {
+    id: uid(),
+    title,
+    date,
+    columnId,
+    attendees: [],
+    topics: [],
+    outcomes: [],
+    createdAt: Date.now(),
+  };
 
   // One entry in the activity: opening a meeting is one act, however many topics it starts with.
   batch(() => {
@@ -121,6 +135,30 @@ export function cardFromOutcome(boardId: string, meetingId: string, outcomeId: s
   });
 
   return card.id;
+}
+
+/**
+ * Turns the meetings power-up on or off.
+ *
+ * Switching it on gives the board its first two columns, because a feature that appears as an
+ * empty stretch of board teaches nothing. Switching it off keeps them: the records are still
+ * there, only hidden, and a toggle must never be a way to lose minutes.
+ */
+export function setMeetingsPowerUp(boardId: string, enabled: boolean) {
+  const board = store.get().boards[boardId]?.board;
+  if (!board) return;
+
+  batch(() => {
+    dispatch(boardId, { type: 'powerUp/set', key: 'meetings', enabled });
+    if (!enabled) return;
+    const columns = board.columns ?? [];
+    if (!columns.some((c) => c.kind === 'meetings')) {
+      dispatch(boardId, { type: 'column/add', column: { id: uid(), title: 'الاجتماعات', kind: 'meetings' } });
+    }
+    if (!columns.some((c) => c.kind === 'policies')) {
+      dispatch(boardId, { type: 'column/add', column: { id: uid(), title: 'السياسات', kind: 'policies' } });
+    }
+  });
 }
 
 /**
