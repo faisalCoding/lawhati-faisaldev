@@ -1,14 +1,17 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useMemo, useState, type ReactNode } from 'react';
+import { Platform, Pressable, ScrollView, StyleSheet, View, type ScrollView as RNScrollView } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { scheduleOnRN } from 'react-native-worklets';
 
 import { addDays, formatLongDate, toISODate, todayISO } from '../../lib/dates';
 import { uid } from '../../lib/ids';
-import { isHeld, movedProgress } from '../../lib/meetings';
+import { inColumn, isHeld, movedProgress } from '../../lib/meetings';
 import { pluralPolicies, pluralTopics } from '../../lib/text';
 import { colors, LIST_GAP, LIST_WIDTH } from '../../lib/theme';
-import type { Board, BoardColumn, Meeting, Policy, PolicyEvent, PolicyTopic } from '../../shared/types';
+import type { Board, BoardColumn, BoardColumnKind, Meeting, Policy, PolicyEvent, PolicyTopic } from '../../shared/types';
 import { dispatch, startMeeting } from '../../store/actions';
+import { CARD_GAP, CARDS_PADDING_H, CARDS_PADDING_TOP, LONG_PRESS_MS, type BoardApi } from './boardApi';
 import { Chip, Icon, IconButton } from '../ui/Buttons';
 import { EditableText } from '../ui/EditableText';
 import { ActionList, Sheet, type SheetAction } from '../ui/Sheet';
@@ -30,6 +33,12 @@ export function RecordColumn({
   index,
   count,
   maxHeight,
+  api,
+  dragging,
+  dragItemId,
+  targeted,
+  placeholderIndex,
+  placeholderHeight,
 }: {
   board: Board;
   column: BoardColumn;
@@ -37,6 +46,16 @@ export function RecordColumn({
   /** How many columns there are, for the move actions. */
   count: number;
   maxHeight: number;
+  api: BoardApi;
+  /** Something is being dragged on the board: the column must not scroll under it. */
+  dragging: boolean;
+  /** The record being dragged: it stays mounted (it owns the gesture) but takes no space. */
+  dragItemId: string | null;
+  /** This whole column is where the record would land, with no slot to show for it. */
+  targeted: boolean;
+  /** Where the drop placeholder goes among the subjects, or -1. */
+  placeholderIndex: number;
+  placeholderHeight: number;
 }) {
   const [sheet, setSheet] = useState<'menu' | 'remove' | 'rename' | 'agenda' | null>(null);
   const [moving, setMoving] = useState<{ id: string; text: string } | null>(null);
@@ -44,12 +63,13 @@ export function RecordColumn({
   const [composing, setComposing] = useState(false);
 
   const siblings = (board.columns ?? []).filter((c) => c.kind === column.kind && c.id !== column.id);
+  const columns = board.columns ?? [];
   const items =
     column.kind === 'meetings'
-      ? mine(board.meetings ?? [], column, board)
+      ? inColumn(board.meetings ?? [], column, columns)
       // A policies column holds subjects, not rules. The rules live two levels down, which is how
       // the minutes already write them.
-      : mine(board.policyTopics ?? [], column, board);
+      : inColumn(board.policyTopics ?? [], column, columns);
 
   const menu: SheetAction[] = [{ label: 'إعادة التسمية', icon: 'pencil', onPress: () => setSheet('rename') }];
   if (column.kind === 'meetings') {
@@ -107,6 +127,51 @@ export function RecordColumn({
     });
   };
 
+  const movable = siblings.length > 0 || (column.kind === 'policies' && items.length > 1);
+  /** A press that was really the end of a drag opens nothing. */
+  const afterDrag = (run: () => void) => () => {
+    if (api.activeId.value === '') run();
+  };
+
+  // The cards, with a gap where the record being dragged would land. A meetings column shows no
+  // gap: the order in it is the dates', not the finger's, so the whole column lights up instead.
+  const cards: ReactNode[] = [];
+  const placeholder = <View key="drop-placeholder" style={[styles.placeholder, { height: placeholderHeight }]} />;
+  let shown = 0;
+  for (const item of items) {
+    const dragged = item.id === dragItemId;
+    if (!dragged && shown === placeholderIndex) cards.push(placeholder);
+    cards.push(
+      <DraggableRecord
+        key={item.id}
+        api={api}
+        kind={column.kind}
+        itemId={item.id}
+        columnId={column.id}
+        hidden={dragged}
+        movable={movable}
+      >
+        {column.kind === 'meetings' ? (
+          <MeetingCard
+            board={board}
+            meeting={item as Meeting}
+            onOpen={afterDrag(() => router.push(`/board/${board.id}/meeting/${item.id}`))}
+            onMove={siblings.length ? () => setMoving({ id: item.id, text: item.title }) : undefined}
+          />
+        ) : (
+          <TopicCard
+            board={board}
+            topic={item as PolicyTopic}
+            onOpen={afterDrag(() => setEditing(item as PolicyTopic))}
+            onMove={siblings.length ? () => setMoving({ id: item.id, text: item.title }) : undefined}
+          />
+        )}
+      </DraggableRecord>,
+    );
+    if (!dragged) shown++;
+  }
+  if (placeholderIndex >= shown) cards.push(placeholder);
+
   return (
     <View style={[styles.column, { maxHeight }]}>
       <View style={styles.header}>
@@ -122,25 +187,19 @@ export function RecordColumn({
         <IconButton name="more" label="خيارات العمود" size={20} onPress={() => setSheet('menu')} />
       </View>
 
-      <ScrollView style={styles.cards} contentContainerStyle={styles.cardsContent} keyboardShouldPersistTaps="handled">
-        {column.kind === 'meetings'
-          ? (items as Meeting[]).map((m) => (
-              <MeetingCard
-                key={m.id}
-                board={board}
-                meeting={m}
-                onMove={siblings.length ? () => setMoving({ id: m.id, text: m.title }) : undefined}
-              />
-            ))
-          : (items as PolicyTopic[]).map((t) => (
-              <TopicCard
-                key={t.id}
-                board={board}
-                topic={t}
-                onOpen={() => setEditing(t)}
-                onMove={siblings.length ? () => setMoving({ id: t.id, text: t.title }) : undefined}
-              />
-            ))}
+      <ScrollView
+        ref={(r: RNScrollView | null) => api.registerList(column.id, r)}
+        style={[styles.cards, targeted && styles.cardsTargeted]}
+        contentContainerStyle={styles.cardsContent}
+        scrollEnabled={!dragging}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        scrollEventThrottle={16}
+        onLayout={(e) => api.reportListViewport(column.id, e.nativeEvent.layout.y, e.nativeEvent.layout.height)}
+        onContentSizeChange={(_w, h) => api.reportListContent(column.id, h)}
+        onScroll={(e) => api.reportListScroll(column.id, e.nativeEvent.contentOffset.y)}
+      >
+        {cards}
       </ScrollView>
 
       {composing ? (
@@ -211,12 +270,6 @@ export function RecordColumn({
 }
 
 /** Everything filed here — including anything with no column at all, which the first one adopts. */
-function mine<T extends { columnId?: string | null }>(all: T[], column: BoardColumn, board: Board): T[] {
-  const first = (board.columns ?? []).find((c) => c.kind === column.kind);
-  const isFirst = first?.id === column.id;
-  return all.filter((x) => (x.columnId ?? null) === column.id || (isFirst && !x.columnId));
-}
-
 /**
  * Deleting a column asks what becomes of what is in it, because minutes are the most valuable
  * thing on this board and a column is only a heading over them.
@@ -290,26 +343,118 @@ function RemoveColumn({
   );
 }
 
+/**
+ * A record card that can be lifted out of its column and dropped in another of the same kind.
+ *
+ * It is the task card's gesture — long-press, then drag — over a different body, and it ends
+ * somewhere else: a meeting only changes column, because within one the date sets the order.
+ */
+function DraggableRecord({
+  api,
+  kind,
+  itemId,
+  columnId,
+  hidden,
+  movable,
+  children,
+}: {
+  api: BoardApi;
+  kind: BoardColumnKind;
+  itemId: string;
+  columnId: string;
+  /** Being dragged: it keeps the gesture and gives up its space. */
+  hidden: boolean;
+  /** False when there is nowhere it could go, so the long press is left to do nothing. */
+  movable: boolean;
+  children: ReactNode;
+}) {
+  const { activeId, tx, ty, startRecordDrag, moveRecordDrag, endRecordDrag, reportCard } = api;
+
+  // Only the drag is a gesture. The card underneath keeps its own press, so the button on it stays
+  // a button; what a press must not do is open a card that the same finger just dragged.
+  const gesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(movable)
+        .activateAfterLongPress(LONG_PRESS_MS)
+        .onStart((e) => {
+          'worklet';
+          if (activeId.value !== '') return;
+          activeId.set(itemId);
+          tx.set(0);
+          ty.set(0);
+          scheduleOnRN(startRecordDrag, kind, itemId, columnId, e.x, e.y);
+        })
+        .onUpdate((e) => {
+          'worklet';
+          if (activeId.value !== itemId) return;
+          tx.set(e.translationX);
+          ty.set(e.translationY);
+          scheduleOnRN(moveRecordDrag, e.translationX, e.translationY);
+        })
+        .onFinalize(() => {
+          'worklet';
+          if (activeId.value === itemId) scheduleOnRN(endRecordDrag);
+        }),
+    [activeId, tx, ty, startRecordDrag, moveRecordDrag, endRecordDrag, kind, itemId, columnId, movable],
+  );
+
+  return (
+    <View
+      collapsable={false}
+      onLayout={(e) => reportCard(itemId, e.nativeEvent.layout)}
+      style={[styles.recordWrap, hidden && styles.recordHidden]}
+    >
+      <GestureDetector gesture={gesture}>
+        <View collapsable={false}>{children}</View>
+      </GestureDetector>
+    </View>
+  );
+}
+
+/** The card that follows the finger while a record is being dragged. */
+export function RecordCardPreview({
+  board,
+  kind,
+  itemId,
+}: {
+  board: Board;
+  kind: BoardColumnKind;
+  itemId: string;
+}) {
+  if (kind === 'meetings') {
+    const meeting = (board.meetings ?? []).find((m) => m.id === itemId);
+    return meeting ? <MeetingCard board={board} meeting={meeting} lifted /> : null;
+  }
+  const topic = (board.policyTopics ?? []).find((t) => t.id === itemId);
+  return topic ? <TopicCard board={board} topic={topic} lifted /> : null;
+}
+
 function MeetingCard({
   board,
   meeting,
+  onOpen,
   onMove,
+  lifted = false,
 }: {
   board: Board;
   meeting: Meeting;
+  onOpen?: () => void;
   /** Absent when there is nowhere else of this kind to move it to. */
   onMove?: () => void;
+  /** Drawn under the finger rather than in its column. */
+  lifted?: boolean;
 }) {
   const held = isHeld(meeting);
   const { moved, total } = movedProgress(board, meeting);
 
   return (
     <Pressable
-      onPress={() => router.push(`/board/${board.id}/meeting/${meeting.id}`)}
-      onLongPress={onMove}
+      onPress={onOpen}
+      disabled={lifted}
       accessibilityRole="button"
-      accessibilityHint={onMove ? 'اضغط مطوّلًا لنقله إلى عمود آخر' : undefined}
-      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+      accessibilityHint={onMove ? 'اضغط مطوّلًا واسحبه إلى عمود آخر' : undefined}
+      style={({ pressed }) => [styles.card, lifted && styles.lifted, pressed && styles.pressed]}
     >
       <View style={styles.cardTop}>
         <Txt style={styles.cardTitle} numberOfLines={2}>
@@ -356,19 +501,21 @@ function TopicCard({
   topic,
   onOpen,
   onMove,
+  lifted = false,
 }: {
   board: Board;
   topic: PolicyTopic;
-  onOpen: () => void;
+  onOpen?: () => void;
   onMove?: () => void;
+  lifted?: boolean;
 }) {
   const clauses = livingClauses(board, topic.id);
   return (
     <Pressable
       onPress={onOpen}
-      onLongPress={onMove}
+      disabled={lifted}
       accessibilityRole="button"
-      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.card, lifted && styles.lifted, pressed && styles.pressed]}
     >
       <Txt style={styles.cardTitle} numberOfLines={2}>
         {topic.title}
@@ -820,9 +967,30 @@ const styles = StyleSheet.create({
   title: { flex: 1, fontSize: 14, fontWeight: '700' },
   count: { paddingHorizontal: 7, paddingVertical: 1, borderRadius: 8, backgroundColor: colors.surface },
   countText: { fontSize: 11.5, color: colors.textSubtle, fontWeight: '700' },
-  cards: { flexGrow: 0 },
-  cardsContent: { paddingHorizontal: 8, paddingBottom: 4, gap: 8 },
+  cards: { flexGrow: 0, flexShrink: 1 },
+  // The drag arithmetic adds these up card by card, so they have to be the board's own constants.
+  cardsContent: { paddingHorizontal: CARDS_PADDING_H, paddingTop: CARDS_PADDING_TOP, paddingBottom: 4 },
+  cardsTargeted: {
+    backgroundColor: colors.placeholder,
+    borderRadius: 10,
+    // An empty column still has to be somewhere a meeting can be dropped.
+    minHeight: 56,
+  },
+  recordWrap: {
+    marginBottom: CARD_GAP,
+    // Stop the browser from selecting text while a card is long-pressed.
+    ...(Platform.OS === 'web' ? { userSelect: 'none' as const } : null),
+  },
+  recordHidden: { height: 0, marginBottom: 0, opacity: 0, overflow: 'hidden' },
+  placeholder: { borderRadius: 10, backgroundColor: colors.placeholder, marginBottom: CARD_GAP },
   card: { padding: 10, borderRadius: 10, backgroundColor: colors.surface, gap: 5 },
+  lifted: {
+    shadowColor: '#091E42',
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
   pressed: { opacity: 0.75 },
   cardTop: { flexDirection: 'row-reverse', alignItems: 'flex-start', gap: 6 },
   cardTitle: { flex: 1, fontSize: 14, fontWeight: '700', lineHeight: 23 },

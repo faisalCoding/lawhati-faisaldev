@@ -1,5 +1,5 @@
 import { todayISO } from './dates';
-import type { Board, Meeting, Outcome } from '../shared/types';
+import type { Board, BoardColumn, Meeting, Outcome } from '../shared/types';
 
 // What a meeting decided and never moved on, and is therefore owed an answer at the next one.
 //
@@ -13,6 +13,22 @@ import type { Board, Meeting, Outcome } from '../shared/types';
  * have happened. That is right for everything already written down and wrong only for one that
  * was postponed — which is exactly what the flag is for.
  */
+/**
+ * What a record column holds.
+ *
+ * Nothing was migrated when columns arrived, so an entity with no column of its own reads as
+ * belonging to the first column of its kind. The rule lives here, in one place, because the board
+ * canvas has to agree with the column about what is in it down to the order.
+ */
+export function inColumn<T extends { columnId?: string | null }>(
+  all: readonly T[],
+  column: BoardColumn,
+  columns: readonly BoardColumn[],
+): T[] {
+  const isFirst = columns.find((c) => c.kind === column.kind)?.id === column.id;
+  return all.filter((x) => (x.columnId ?? null) === column.id || (isFirst && !x.columnId));
+}
+
 export function isHeld(meeting: Meeting, today = todayISO()): boolean {
   return meeting.held ?? meeting.date <= today;
 }

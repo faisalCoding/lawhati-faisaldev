@@ -1,7 +1,7 @@
 import type { LayoutRectangle, ScrollView } from 'react-native';
 import type { SharedValue } from 'react-native-reanimated';
 
-import type { CardLink, OpInput } from '../../shared/types';
+import type { BoardColumnKind, CardLink, OpInput } from '../../shared/types';
 
 export const LONG_PRESS_MS = 250;
 
@@ -68,6 +68,13 @@ export interface BoardApi {
   startDrag: (cardId: string, listId: string, x: number, y: number) => void;
   moveDrag: (tx: number, ty: number) => void;
   endDrag: () => void;
+  /**
+   * Picks up a meeting, or a policy subject, out of a record column. It can only be dropped in a
+   * column of the same kind: a meeting is not a subject and neither is a task.
+   */
+  startRecordDrag: (kind: BoardColumnKind, itemId: string, columnId: string, x: number, y: number) => void;
+  moveRecordDrag: (tx: number, ty: number) => void;
+  endRecordDrag: () => void;
   /** Picks a whole list up by its title; x / y are where the finger is, relative to the title area. */
   startListDrag: (listId: string, x: number, y: number) => void;
   moveListDrag: (tx: number, ty: number) => void;

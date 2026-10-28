@@ -7,12 +7,13 @@ import { scheduleOnRN } from 'react-native-worklets';
 
 import { haptic } from '../../lib/haptics';
 import { uid } from '../../lib/ids';
+import { inColumn } from '../../lib/meetings';
 import { newList } from '../../lib/templates';
 import { LIST_GAP, LIST_WIDTH } from '../../lib/theme';
-import type { Board, BoardColumnKind, Card, CardLink, List, OpInput } from '../../shared/types';
+import type { Board, BoardColumn, BoardColumnKind, Card, CardLink, List, OpInput } from '../../shared/types';
 import { dispatch } from '../../store/actions';
 import { AddListColumn } from './AddListColumn';
-import { RecordColumn } from './RecordColumn';
+import { RecordCardPreview, RecordColumn } from './RecordColumn';
 import { CardFace } from './CardFace';
 import { Column, ColumnPreview } from './Column';
 import { CARD_GAP, CARDS_PADDING_H, CARDS_PADDING_TOP, createGeometry, listGeometry, type BoardApi } from './boardApi';
@@ -29,6 +30,25 @@ interface DragState {
   startX: number;
   startY: number;
   /** Where the finger grabbed the card, relative to the card. */
+  grabX: number;
+  grabY: number;
+}
+
+/** A meeting or a policy subject on its way to another column of the same kind. */
+interface RecordDragState {
+  kind: BoardColumnKind;
+  itemId: string;
+  fromColumnId: string;
+  toColumnId: string;
+  /**
+   * Where it lands among the column's subjects, or -1 in a meetings column. Meetings are ordered by
+   * the date they were held, so there is no slot to aim at there — the column itself is the target.
+   */
+  toIndex: number;
+  width: number;
+  height: number;
+  startX: number;
+  startY: number;
   grabX: number;
   grabY: number;
 }
@@ -100,13 +120,15 @@ export function BoardCanvas({
   const frameRef = useRef<number | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const listDragRef = useRef<ListDragState | null>(null);
+  const recordDragRef = useRef<RecordDragState | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [listDrag, setListDrag] = useState<ListDragState | null>(null);
+  const [recordDrag, setRecordDrag] = useState<RecordDragState | null>(null);
   const [height, setHeight] = useState(0);
   // The cards whose tasks are listed under them.
   const [openTasks, setOpenTasks] = useState<ReadonlySet<string>>(() => new Set());
 
-  // One drag at a time: holds the dragged card's id, or "list:<id>" for a list.
+  // One drag at a time: holds the dragged card's (or record's) id, or "list:<id>" for a list.
   const activeId = useSharedValue('');
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
@@ -132,11 +154,11 @@ export function BoardCanvas({
       return Math.floor((geo.width - x + geo.scrollX - PADDING_H) / SLOT);
     };
     const listIndex = (listId: string) => boardRef.current.lists.findIndex((l) => l.id === listId);
-    /** Top of the `index`-th card of a list inside its scroll content, leaving out `skipId`. */
-    const cardTop = (list: List, index: number, skipId: string | null) => {
+    /** Top of the `index`-th card of a stack inside its scroll content, leaving out `skipId`. */
+    const stackTop = (ids: readonly string[], index: number, skipId: string | null) => {
       let top = CARDS_PADDING_TOP;
       let n = 0;
-      for (const id of list.cardIds) {
+      for (const id of ids) {
         if (n >= index) break;
         const r = geoRef.current.cards[id];
         if (id === skipId || !r) continue;
@@ -145,6 +167,23 @@ export function BoardCanvas({
       }
       return top;
     };
+    const cardTop = (list: List, index: number, skipId: string | null) => stackTop(list.cardIds, index, skipId);
+
+    // The record columns sit after the task lists in the same row, so they take the slots that
+    // follow them and the slot arithmetic above needs nothing added for them.
+    const recordColumns = () => boardRef.current.columns ?? [];
+    const columnSlot = (columnId: string) => {
+      const i = recordColumns().findIndex((c) => c.id === columnId);
+      return i < 0 ? -1 : boardRef.current.lists.length + i;
+    };
+    const columnAt = (x: number) => recordColumns()[slotAt(x) - boardRef.current.lists.length];
+    const recordItems = (column: BoardColumn) => {
+      const b = boardRef.current;
+      return column.kind === 'meetings'
+        ? inColumn(b.meetings ?? [], column, b.columns ?? [])
+        : inColumn(b.policyTopics ?? [], column, b.columns ?? []);
+    };
+    const recordIds = (column: BoardColumn) => recordItems(column).map((x) => x.id);
 
     const setDragState = (next: DragState | null) => {
       dragRef.current = next;
@@ -153,6 +192,10 @@ export function BoardCanvas({
     const setListDragState = (next: ListDragState | null) => {
       listDragRef.current = next;
       setListDrag(next);
+    };
+    const setRecordDragState = (next: RecordDragState | null) => {
+      recordDragRef.current = next;
+      setRecordDrag(next);
     };
 
     // Card drag: finds the list under the finger and the slot the card would drop into.
@@ -183,6 +226,39 @@ export function BoardCanvas({
       }
     };
 
+    // Record drag: finds the record column under the finger, and in a policies column the slot.
+    const updateRecordTarget = () => {
+      const d = recordDragRef.current;
+      if (!d) return;
+      const geo = geoRef.current;
+      const pointer = pointerRef.current;
+      const under = columnAt(pointer.x);
+      // Only a column of its own kind takes it. Over a task list, the gap, or nothing at all, the
+      // last target stands: a meeting dropped on a list of tasks has nowhere to be.
+      const column = under?.kind === d.kind ? under : recordColumns().find((c) => c.id === d.toColumnId);
+      const lg = column && geo.lists[column.id];
+      if (!column || !lg) return;
+      let toIndex = -1;
+      if (d.kind === 'policies') {
+        // Count the subjects whose middle is above the finger, as a list of cards does.
+        const y = pointer.y - PADDING_V - lg.y + lg.scrollY;
+        toIndex = 0;
+        let top = CARDS_PADDING_TOP;
+        for (const id of recordIds(column)) {
+          const r = geo.cards[id];
+          if (id === d.itemId || !r) continue;
+          if (column.id === d.toColumnId && toIndex === d.toIndex) top += d.height + CARD_GAP;
+          if (top + r.height / 2 >= y) break;
+          top += r.height + CARD_GAP;
+          toIndex++;
+        }
+      }
+      if (column.id !== d.toColumnId || toIndex !== d.toIndex) {
+        if (column.id !== d.toColumnId) haptic(() => Haptics.selectionAsync());
+        setRecordDragState({ ...d, toColumnId: column.id, toIndex });
+      }
+    };
+
     // List drag: the list goes to the slot under the middle of the lifted list.
     const updateListTarget = () => {
       const d = listDragRef.current;
@@ -202,7 +278,8 @@ export function BoardCanvas({
       frameRef.current = null;
       const card = dragRef.current;
       const list = listDragRef.current;
-      if (!card && !list) return;
+      const record = recordDragRef.current;
+      if (!card && !list && !record) return;
       const geo = geoRef.current;
       const pointer = pointerRef.current;
       let scrolled = false;
@@ -221,7 +298,7 @@ export function BoardCanvas({
         }
       }
 
-      const lg = card ? geo.lists[card.toListId] : undefined;
+      const lg = card ? geo.lists[card.toListId] : record ? geo.lists[record.toColumnId] : undefined;
       if (lg && lg.height > 0) {
         const top = PADDING_V + lg.y;
         const bottom = top + lg.height;
@@ -242,6 +319,7 @@ export function BoardCanvas({
 
       if (scrolled) {
         if (card) updateCardTarget();
+        else if (record) updateRecordTarget();
         else updateListTarget();
       }
       frameRef.current = requestAnimationFrame(tick);
@@ -293,7 +371,7 @@ export function BoardCanvas({
     };
 
     const startDrag = (cardId: string, listId: string, x: number, y: number) => {
-      if (dragRef.current || listDragRef.current) return;
+      if (dragRef.current || listDragRef.current || recordDragRef.current) return;
       const geo = geoRef.current;
       const index = listIndex(listId);
       const list = boardRef.current.lists[index];
@@ -334,7 +412,7 @@ export function BoardCanvas({
       stopTicking();
       const d = dragRef.current;
       if (!d) {
-        if (!listDragRef.current) activeId.set('');
+        if (!listDragRef.current && !recordDragRef.current) activeId.set('');
         return;
       }
       dragRef.current = null;
@@ -363,8 +441,114 @@ export function BoardCanvas({
       });
     };
 
+    const startRecordDrag = (
+      kind: BoardColumnKind,
+      itemId: string,
+      columnId: string,
+      x: number,
+      y: number,
+    ) => {
+      if (dragRef.current || listDragRef.current || recordDragRef.current) return;
+      const geo = geoRef.current;
+      const slot = columnSlot(columnId);
+      const column = recordColumns().find((c) => c.id === columnId);
+      const lg = geo.lists[columnId];
+      const r = geo.cards[itemId];
+      if (slot < 0 || !column || !lg || !r) {
+        activeId.set('');
+        return;
+      }
+      const ids = recordIds(column);
+      const startX = slotLeft(slot) + CARDS_PADDING_H;
+      const startY = PADDING_V + lg.y + stackTop(ids, ids.indexOf(itemId), null) - lg.scrollY;
+      setRecordDragState({
+        kind,
+        itemId,
+        fromColumnId: columnId,
+        toColumnId: columnId,
+        toIndex: kind === 'policies' ? ids.indexOf(itemId) : -1,
+        width: r.width,
+        height: r.height,
+        startX,
+        startY,
+        grabX: x,
+        grabY: y,
+      });
+      pickUp(startX, startY, x, y);
+    };
+
+    const moveRecordDrag = (dx: number, dy: number) => {
+      const d = recordDragRef.current;
+      if (!d) return;
+      pointerRef.current = { x: d.startX + d.grabX + dx, y: d.startY + d.grabY + dy };
+      updateRecordTarget();
+    };
+
+    /** The place a subject must take in the whole list of subjects to sit at `at` in its column. */
+    const policyTopicIndex = (topicId: string, column: BoardColumn, at: number) => {
+      // `topic/movePolicy` splices the subject out and back in, so this counts the list without it.
+      const rest = (boardRef.current.policyTopics ?? []).filter((t) => t.id !== topicId);
+      const here = inColumn(rest, column, recordColumns());
+      if (here.length === 0) return null; // alone in the column: a position would say nothing
+      const last = at >= here.length;
+      const i = rest.findIndex((t) => t.id === (last ? here[here.length - 1] : here[at]).id);
+      return last ? i + 1 : i;
+    };
+
+    const endRecordDrag = () => {
+      stopTicking();
+      const d = recordDragRef.current;
+      if (!d) {
+        if (!dragRef.current && !listDragRef.current) activeId.set('');
+        return;
+      }
+      recordDragRef.current = null;
+      const boardId = boardRef.current.id;
+      const column = recordColumns().find((c) => c.id === d.toColumnId);
+      const slot = columnSlot(d.toColumnId);
+      const lg = geoRef.current.lists[d.toColumnId];
+      const ids = column ? recordIds(column) : [];
+      // Where it will actually come to rest: the slot it was aimed at, or, in a meetings column,
+      // the place its date gives it.
+      let landing = d.toIndex;
+      if (landing < 0) {
+        const m = (boardRef.current.meetings ?? []).find((x) => x.id === d.itemId);
+        const others = ids.filter((id) => id !== d.itemId);
+        landing = m
+          ? others.filter((id) => {
+              const other = (boardRef.current.meetings ?? []).find((x) => x.id === id);
+              return other !== undefined && other.date > m.date;
+            }).length
+          : 0;
+      }
+      const to =
+        column && slot >= 0 && lg
+          ? {
+              x: slotLeft(slot) + CARDS_PADDING_H,
+              y: PADDING_V + lg.y + stackTop(ids, landing, d.itemId) - lg.scrollY,
+            }
+          : null;
+      settle(d, to, () => {
+        setRecordDrag(null);
+        if (!column) return;
+        const changedColumn = d.toColumnId !== d.fromColumnId;
+        if (d.kind === 'meetings') {
+          // Inside a meetings column the date decides the order, so only its column can change.
+          if (changedColumn) {
+            dispatch(boardId, { type: 'meeting/update', meetingId: d.itemId, patch: { columnId: d.toColumnId } });
+          }
+          return;
+        }
+        if (changedColumn) {
+          dispatch(boardId, { type: 'topic/updatePolicy', topicId: d.itemId, patch: { columnId: d.toColumnId } });
+        }
+        const at = policyTopicIndex(d.itemId, column, d.toIndex);
+        if (at !== null) dispatch(boardId, { type: 'topic/movePolicy', topicId: d.itemId, toIndex: at });
+      });
+    };
+
     const startListDrag = (listId: string, x: number, y: number) => {
-      if (dragRef.current || listDragRef.current) return;
+      if (dragRef.current || listDragRef.current || recordDragRef.current) return;
       const geo = geoRef.current;
       const fromIndex = listIndex(listId);
       const c = geo.columns[listId];
@@ -403,7 +587,7 @@ export function BoardCanvas({
       stopTicking();
       const d = listDragRef.current;
       if (!d) {
-        if (!dragRef.current) activeId.set('');
+        if (!dragRef.current && !recordDragRef.current) activeId.set('');
         return;
       }
       listDragRef.current = null;
@@ -426,6 +610,9 @@ export function BoardCanvas({
       startDrag,
       moveDrag,
       endDrag,
+      startRecordDrag,
+      moveRecordDrag,
+      endRecordDrag,
       startListDrag,
       moveListDrag,
       endListDrag,
@@ -481,7 +668,7 @@ export function BoardCanvas({
   const maxColumnHeight = Math.max(0, height - PADDING_V * 2);
   const dragCard = drag ? board.cards[drag.cardId] : undefined;
   const draggedList = listDrag ? board.lists.find((l) => l.id === listDrag.listId) : undefined;
-  const dragging = drag !== null || listDrag !== null;
+  const dragging = drag !== null || listDrag !== null || recordDrag !== null;
 
   // The lists, with a gap where the list being dragged would land.
   const columns: ReactNode[] = [];
@@ -554,6 +741,14 @@ export function BoardCanvas({
                 index={i}
                 count={(board.columns ?? []).length}
                 maxHeight={maxColumnHeight}
+                api={api}
+                dragging={dragging}
+                dragItemId={recordDrag?.itemId ?? null}
+                // A meetings column has no slot to show: it is the target as a whole, because the
+                // date decides where the card lands in it.
+                targeted={recordDrag?.toColumnId === column.id && recordDrag.toIndex < 0}
+                placeholderIndex={recordDrag?.toColumnId === column.id ? recordDrag.toIndex : -1}
+                placeholderHeight={recordDrag?.height ?? 0}
               />
             ))
           : null}
@@ -578,6 +773,13 @@ export function BoardCanvas({
               expanded={openTasks.has(dragCard.id)}
               lifted
             />
+          </Animated.View>
+        </View>
+      ) : null}
+      {recordDrag ? (
+        <View style={styles.overlay}>
+          <Animated.View style={[styles.ghost, { width: recordDrag.width }, ghostStyle]}>
+            <RecordCardPreview board={board} kind={recordDrag.kind} itemId={recordDrag.itemId} />
           </Animated.View>
         </View>
       ) : null}
