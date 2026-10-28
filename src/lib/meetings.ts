@@ -1,5 +1,5 @@
 import { todayISO } from './dates';
-import type { Board, BoardColumn, Meeting, Outcome } from '../shared/types';
+import type { Board, BoardColumn, Meeting, Outcome, Policy } from '../shared/types';
 
 // What a meeting decided and never moved on, and is therefore owed an answer at the next one.
 //
@@ -27,6 +27,21 @@ export function inColumn<T extends { columnId?: string | null }>(
 ): T[] {
   const isFirst = columns.find((c) => c.kind === column.kind)?.id === column.id;
   return all.filter((x) => (x.columnId ?? null) === column.id || (isFirst && !x.columnId));
+}
+
+/**
+ * The rules still in force under a subject, or under one of its sub-headings.
+ *
+ * A repealed rule keeps its record and leaves the document: what a policy used to say is history,
+ * and history is read in the rule's own log, not mistaken for the rule.
+ */
+export function livingClauses(board: Board, topicId: string, subtopicId?: string | null): Policy[] {
+  return (board.policies ?? []).filter(
+    (p) =>
+      !p.repealedAt &&
+      (p.topicId ?? null) === topicId &&
+      (subtopicId === undefined || (p.subtopicId ?? null) === subtopicId),
+  );
 }
 
 export function isHeld(meeting: Meeting, today = todayISO()): boolean {

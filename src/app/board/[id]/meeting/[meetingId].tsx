@@ -5,132 +5,290 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '../../../../components/ui/Avatar';
 import { PeoplePicker } from '../../../../components/board/PeoplePicker';
+import {
+  DocAdd,
+  DocClause,
+  DocHeading,
+  DocKicker,
+  DocMeta,
+  DocNote,
+  DocPage,
+  DocRule,
+  DocTitle,
+} from '../../../../components/board/Document';
 import { Button, Chip, Icon, IconButton } from '../../../../components/ui/Buttons';
 import { EditableText } from '../../../../components/ui/EditableText';
-import { AvoidKeyboard } from '../../../../components/ui/Keyboard';
-import { ModalHeader, Section } from '../../../../components/ui/Layout';
-import { Sheet } from '../../../../components/ui/Sheet';
+import { ModalHeader } from '../../../../components/ui/Layout';
+import { ActionList, PromptForm, Sheet, type SheetAction } from '../../../../components/ui/Sheet';
 import { Input, Txt } from '../../../../components/ui/Txt';
 import { addDays, formatLongDate, todayISO } from '../../../../lib/dates';
-import { isHeld, movedProgress, stuckBefore } from '../../../../lib/meetings';
+import { hasMoved, isHeld, movedProgress, needsMoving, stuckBefore } from '../../../../lib/meetings';
 import { uid } from '../../../../lib/ids';
 import { goBack } from '../../../../lib/nav';
+import { ordinal } from '../../../../lib/text';
 import { OUTCOME_NAMES } from '../../../../lib/activityText';
-import { MovedBar } from '../../../../components/board/MovedBar';
 import { colors } from '../../../../lib/theme';
 import type { IconName } from '../../../../components/ui/iconData';
 import type { Board, Meeting, MeetingTopic, Outcome, OutcomeKind } from '../../../../shared/types';
 import { cardFromOutcome, checklistFromOutcome, dispatch, policyFromOutcome } from '../../../../store/actions';
 import { useBoard } from '../../../../store/store';
 
-/** One meeting: when and where it was, who was there, and its agenda. */
+/**
+ * One meeting, set as its own minutes.
+ *
+ * It is read far more often than it is written: someone opens it to find what was decided about
+ * the trips, not to fill a form. So the page is the document — a heading, a clause, the line of
+ * detail under it — and everything that changes it waits behind a tap on the thing it changes.
+ */
 export default function MeetingScreen() {
   const { id, meetingId } = useLocalSearchParams<{ id: string; meetingId: string }>();
   const insets = useSafeAreaInsets();
   const board = useBoard(id);
   const meeting = board?.meetings?.find((m) => m.id === meetingId);
+  const [sheet, setSheet] = useState<SheetMode>(null);
 
   if (!board || !id || !meeting) {
     return (
       <View style={styles.screen}>
-        <ModalHeader title="الاجتماع" onClose={goBack} />
+        <ModalHeader title="المحضر" onClose={goBack} />
         <Txt style={styles.gone}>هذا الاجتماع لم يعد موجودًا.</Txt>
       </View>
     );
   }
 
-  const update = (patch: Partial<Pick<Meeting, 'title' | 'date' | 'place' | 'held'>>) =>
-    dispatch(id, { type: 'meeting/update', meetingId: meeting.id, patch });
+  const outcomes = meeting.outcomes ?? [];
+  // Anything whose topic was deleted falls back here rather than disappearing with it.
+  const general = outcomes.filter((o) => !o.topicId || !meeting.topics.some((t) => t.id === o.topicId));
+  const held = isHeld(meeting);
+  const { moved, total } = movedProgress(board, meeting);
+  const present = meeting.attendees.map((a) => a.name).join('، ');
+  const info = () => setSheet({ kind: 'meeting' });
 
   return (
     <View style={styles.screen}>
-      <ModalHeader title="الاجتماع" onClose={goBack} />
-      <AvoidKeyboard style={styles.flex}>
-        <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
-          keyboardShouldPersistTaps="handled"
-        >
-          <EditableText
-            value={meeting.title}
-            onCommit={(title) => update({ title })}
-            required
-            placeholder="عنوان الاجتماع"
-            style={styles.title}
-            multiline
-          />
+      <ModalHeader title="المحضر" onClose={goBack} />
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}>
+        <DocPage>
+          <DocKicker>محضر اجتماع</DocKicker>
+          <DocTitle onPress={info}>{meeting.title}</DocTitle>
+          <DocMeta onPress={info}>
+            {formatLongDate(meeting.date)}
+            {meeting.place ? ` — ${meeting.place}` : ''}
+          </DocMeta>
+          <DocMeta onPress={info}>
+            {held ? 'عُقد' : 'لم يُعقد بعد'}
+            {total > 0 ? ` · رُحِّل منه ${moved} من ${total}` : ''}
+          </DocMeta>
 
-          <HeldRow board={board} meeting={meeting} onChange={(held) => update({ held })} />
-          <WhenSection date={meeting.date} onChange={(date) => update({ date })} />
-
-          <Section title="المكان" icon="target">
-            <EditableText
-              value={meeting.place ?? ''}
-              onCommit={(place) => update({ place })}
-              placeholder="قاعة الاجتماعات، أو رابط اللقاء"
-              style={styles.place}
-            />
-          </Section>
+          <DocRule />
+          <DocMeta onPress={() => setSheet({ kind: 'people' })}>
+            <Txt style={styles.lead}>الحضور: </Txt>
+            {present || 'لم يُسجَّل أحد بعد'}
+          </DocMeta>
+          <DocRule />
 
           <FollowUpSection board={board} meeting={meeting} />
-          <AttendeesSection board={board} meeting={meeting} />
-          <TopicsSection board={board} meeting={meeting} />
 
-          <Button
-            title="حذف الاجتماع"
-            icon="trash"
-            variant="danger"
-            onPress={() => {
-              dispatch(id, { type: 'meeting/remove', meetingId: meeting.id });
-              goBack();
-            }}
-          />
-        </ScrollView>
-      </AvoidKeyboard>
+          {meeting.topics.length === 0 && general.length === 0 ? (
+            <DocNote>لم يُكتب في هذا المحضر شيء بعد.</DocNote>
+          ) : null}
+
+          {meeting.topics.map((topic, index) => {
+            const under = outcomes.filter((o) => o.topicId === topic.id);
+            return (
+              <View key={topic.id}>
+                <DocHeading
+                  marker={ordinal(index + 1)}
+                  title={topic.title}
+                  onPress={() => setSheet({ kind: 'topic', topic, index })}
+                />
+                {under.length === 0 ? (
+                  <DocNote>لم يُسجَّل تحت هذا المحور شيء.</DocNote>
+                ) : (
+                  under.map((outcome, i) => (
+                    <OutcomeClause
+                      key={outcome.id}
+                      board={board}
+                      meeting={meeting}
+                      outcome={outcome}
+                      marker={`${i + 1}.`}
+                    />
+                  ))
+                )}
+              </View>
+            );
+          })}
+
+          {general.length > 0 ? (
+            <View>
+              <DocHeading title="توصيات عامّة" />
+              {general.map((outcome, i) => (
+                <OutcomeClause
+                  key={outcome.id}
+                  board={board}
+                  meeting={meeting}
+                  outcome={outcome}
+                  marker={`${i + 1}.`}
+                />
+              ))}
+            </View>
+          ) : null}
+
+          <DocRule />
+          <DocAdd label="إضافة محور" onPress={() => setSheet({ kind: 'addTopic' })} />
+          <DocAdd label="إضافة توصية عامّة" onPress={() => setSheet({ kind: 'addOutcome', topicId: null })} />
+        </DocPage>
+      </ScrollView>
+
+      <MeetingSheet board={board} meeting={meeting} sheet={sheet} onSet={setSheet} />
     </View>
   );
 }
+
+/** What the one sheet of this screen is showing. */
+type SheetMode =
+  | null
+  | { kind: 'meeting' }
+  | { kind: 'people' }
+  | { kind: 'topic'; topic: MeetingTopic; index: number }
+  | { kind: 'renameTopic'; topic: MeetingTopic }
+  | { kind: 'addTopic' }
+  | { kind: 'addOutcome'; topicId: string | null };
 
 /**
- * Whether it took place, and how much of what it decided has been written down where it is
- * followed. Two different questions: a meeting can be held and nothing filed, or every decision
- * filed and none of it done yet.
+ * Everything that edits the minutes, in the one sheet the screen keeps.
+ *
+ * iOS will not raise a second modal while the first is still animating, so the screen swaps this
+ * sheet's contents instead of stacking sheets — which is also why the topic menu and the rename
+ * form are two modes of one thing.
  */
-function HeldRow({ board, meeting, onChange }: { board: Board; meeting: Meeting; onChange: (held: boolean) => void }) {
-  const held = isHeld(meeting);
-  const { moved, total } = movedProgress(board, meeting);
+function MeetingSheet({
+  board,
+  meeting,
+  sheet,
+  onSet,
+}: {
+  board: Board;
+  meeting: Meeting;
+  sheet: SheetMode;
+  onSet: (next: SheetMode) => void;
+}) {
+  const close = () => onSet(null);
+  const titles: Record<NonNullable<SheetMode>['kind'], string> = {
+    meeting: 'الاجتماع',
+    people: 'الحضور',
+    topic: sheet?.kind === 'topic' ? sheet.topic.title : 'المحور',
+    renameTopic: 'عنوان المحور',
+    addTopic: 'محور جديد',
+    addOutcome: 'توصية جديدة',
+  };
+
   return (
-    <View style={styles.heldRow}>
-      <Chip
-        label={held ? 'عُقد' : 'لم يُعقد بعد'}
-        icon={held ? 'check' : 'clock'}
-        selected={held}
-        onPress={() => onChange(!held)}
-      />
-      {total > 0 ? (
-        <View style={styles.heldBar}>
-          <MovedBar moved={moved} total={total} />
-        </View>
+    <Sheet visible={sheet !== null} onClose={close} title={sheet ? titles[sheet.kind] : undefined}>
+      {sheet?.kind === 'meeting' ? <MeetingForm board={board} meeting={meeting} onDone={close} /> : null}
+      {sheet?.kind === 'people' ? <Attendees board={board} meeting={meeting} /> : null}
+      {sheet?.kind === 'topic' ? (
+        <TopicActions board={board} meeting={meeting} topic={sheet.topic} index={sheet.index} onSet={onSet} />
       ) : null}
-    </View>
+      {sheet?.kind === 'renameTopic' ? (
+        <PromptForm
+          initial={sheet.topic.title}
+          placeholder="عنوان المحور"
+          onCancel={close}
+          onSubmit={(title) => {
+            dispatch(board.id, {
+              type: 'topic/update',
+              meetingId: meeting.id,
+              topicId: sheet.topic.id,
+              patch: { title },
+            });
+            close();
+          }}
+        />
+      ) : null}
+      {sheet?.kind === 'addTopic' ? (
+        <PromptForm
+          placeholder="عنوان المحور"
+          submitLabel="إضافة"
+          onCancel={close}
+          onSubmit={(title) => {
+            dispatch(board.id, {
+              type: 'topic/add',
+              meetingId: meeting.id,
+              topic: { id: uid(), title, notes: '' },
+            });
+            close();
+          }}
+        />
+      ) : null}
+      {sheet?.kind === 'addOutcome' ? (
+        <AddOutcome board={board} meeting={meeting} topicId={sheet.topicId} onDone={close} />
+      ) : null}
+    </Sheet>
   );
 }
 
-function WhenSection({ date, onChange }: { date: string; onChange: (date: string) => void }) {
+/** When it was, where, whether it happened at all — and the one way to delete it. */
+function MeetingForm({ board, meeting, onDone }: { board: Board; meeting: Meeting; onDone: () => void }) {
   const today = todayISO();
+  const held = isHeld(meeting);
+  const update = (patch: Partial<Pick<Meeting, 'title' | 'date' | 'place' | 'held'>>) =>
+    dispatch(board.id, { type: 'meeting/update', meetingId: meeting.id, patch });
+
   return (
-    <Section title="التاريخ" icon="calendar">
+    <View style={styles.form}>
+      <Txt style={styles.formLabel}>العنوان</Txt>
+      <EditableText
+        value={meeting.title}
+        onCommit={(title) => update({ title })}
+        required
+        placeholder="عنوان الاجتماع"
+        style={styles.formValue}
+        multiline
+      />
+
+      <Txt style={styles.formLabel}>التاريخ</Txt>
       <View style={styles.dateRow}>
-        <IconButton name="chevron-right" label="اليوم السابق" onPress={() => onChange(addDays(date, -1))} />
+        <IconButton name="chevron-right" label="اليوم السابق" onPress={() => update({ date: addDays(meeting.date, -1) })} />
         <View style={styles.dateBox}>
-          <Txt style={styles.dateText}>{formatLongDate(date)}</Txt>
+          <Txt style={styles.dateText}>{formatLongDate(meeting.date)}</Txt>
         </View>
-        <IconButton name="chevron-left" label="اليوم التالي" onPress={() => onChange(addDays(date, 1))} />
+        <IconButton name="chevron-left" label="اليوم التالي" onPress={() => update({ date: addDays(meeting.date, 1) })} />
       </View>
       <View style={styles.wrapRow}>
-        <Chip label="اليوم" selected={date === today} onPress={() => onChange(today)} />
-        <Chip label="أمس" selected={date === addDays(today, -1)} onPress={() => onChange(addDays(today, -1))} />
+        <Chip label="اليوم" selected={meeting.date === today} onPress={() => update({ date: today })} />
+        <Chip
+          label="أمس"
+          selected={meeting.date === addDays(today, -1)}
+          onPress={() => update({ date: addDays(today, -1) })}
+        />
+        <Chip
+          label={held ? 'عُقد' : 'لم يُعقد بعد'}
+          icon={held ? 'check' : 'clock'}
+          selected={held}
+          onPress={() => update({ held: !held })}
+        />
       </View>
-    </Section>
+
+      <Txt style={styles.formLabel}>المكان</Txt>
+      <EditableText
+        value={meeting.place ?? ''}
+        onCommit={(place) => update({ place })}
+        placeholder="قاعة الاجتماعات، أو رابط اللقاء"
+        style={styles.formValue}
+      />
+
+      <Button
+        title="حذف الاجتماع"
+        icon="trash"
+        variant="danger"
+        onPress={() => {
+          dispatch(board.id, { type: 'meeting/remove', meetingId: meeting.id });
+          onDone();
+          goBack();
+        }}
+      />
+    </View>
   );
 }
 
@@ -139,324 +297,180 @@ function WhenSection({ date, onChange }: { date: string; onChange: (date: string
  * A name is kept with each one, so a record of who attended on a day does not change when someone
  * later renames themselves or stops using the board.
  */
-function AttendeesSection({ board, meeting }: { board: Board; meeting: Meeting }) {
+function Attendees({ board, meeting }: { board: Board; meeting: Meeting }) {
   const roster = board.members ?? [];
   const here = new Set(meeting.attendees.map((a) => a.id));
   // Someone recorded as present who is no longer on the roster still shows, and stays removable.
   const absent = meeting.attendees.filter((a) => !roster.some((m) => m.id === a.id));
 
+  if (roster.length === 0 && absent.length === 0) {
+    return (
+      <Txt style={styles.note}>لا أحد على سجلّ هذه اللوحة بعد. من يفتحها بحسابه يظهر هنا، فتختاره من الحضور.</Txt>
+    );
+  }
+
   return (
-    <Section title="الحضور" icon="users" right={<Txt style={styles.count}>{meeting.attendees.length}</Txt>}>
-      {roster.length === 0 && absent.length === 0 ? (
-        <Txt style={styles.note}>
-          لا أحد على سجلّ هذه اللوحة بعد. من يفتحها بحسابه يظهر هنا، فتختاره من الحضور.
-        </Txt>
-      ) : (
-        <View style={styles.wrapRow}>
-          {[...roster.map((m) => ({ id: m.id, name: m.name })), ...absent].map((person) => (
-            <Pressable
-              key={person.id}
-              accessibilityRole="button"
-              aria-selected={here.has(person.id)}
-              onPress={() =>
-                dispatch(board.id, {
-                  type: 'meeting/attend',
-                  meetingId: meeting.id,
-                  person,
-                  on: !here.has(person.id),
-                })
-              }
-              style={({ pressed }) => [
-                styles.person,
-                here.has(person.id) && styles.personOn,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Avatar person={person} size={24} />
-              <Txt style={[styles.personName, here.has(person.id) && styles.personNameOn]}>{person.name}</Txt>
-              {here.has(person.id) ? <Icon name="check" size={14} color={colors.surface} /> : null}
-            </Pressable>
-          ))}
-        </View>
-      )}
-    </Section>
+    <View style={[styles.wrapRow, styles.form]}>
+      {[...roster.map((m) => ({ id: m.id, name: m.name })), ...absent].map((person) => (
+        <Pressable
+          key={person.id}
+          accessibilityRole="button"
+          aria-selected={here.has(person.id)}
+          onPress={() =>
+            dispatch(board.id, {
+              type: 'meeting/attend',
+              meetingId: meeting.id,
+              person,
+              on: !here.has(person.id),
+            })
+          }
+          style={({ pressed }) => [styles.person, here.has(person.id) && styles.personOn, pressed && styles.pressed]}
+        >
+          <Avatar person={person} size={24} />
+          <Txt style={[styles.personName, here.has(person.id) && styles.personNameOn]}>{person.name}</Txt>
+          {here.has(person.id) ? <Icon name="check" size={14} color={colors.surface} /> : null}
+        </Pressable>
+      ))}
+    </View>
   );
 }
 
-function TopicsSection({ board, meeting }: { board: Board; meeting: Meeting }) {
-  const [draft, setDraft] = useState('');
-  const [isAddingTopic, setIsAddingTopic] = useState(false);
-  const outcomes = meeting.outcomes ?? [];
-  // Outcomes not tied to any topic (general outcomes)
-  const generalOutcomes = outcomes.filter((o) => !o.topicId || !meeting.topics.some((t) => t.id === o.topicId));
-
-  const add = () => {
-    const title = draft.trim();
-    if (!title) return;
-    dispatch(board.id, { type: 'topic/add', meetingId: meeting.id, topic: { id: uid(), title, notes: '' } });
-    setDraft('');
-    setIsAddingTopic(false);
-  };
-
-  return (
-    <Section title="المحاور والتوصيات" icon="checklist" right={<Txt style={styles.count}>{meeting.topics.length}</Txt>}>
-      <View style={styles.documentCard}>
-        {meeting.topics.length === 0 ? (
-          <Txt style={styles.emptyDocText}>لا توجد محاور مسجلة لهذا الاجتماع بعد.</Txt>
-        ) : null}
-
-        {meeting.topics.map((topic, index) => (
-          <TopicRow
-            key={topic.id}
-            board={board}
-            meeting={meeting}
-            topic={topic}
-            outcomes={outcomes.filter((o) => o.topicId === topic.id)}
-            index={index}
-            last={index === meeting.topics.length - 1}
-          />
-        ))}
-
-        {isAddingTopic ? (
-          <View style={styles.addTopicInline}>
-            <Input
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="اكتب عنوان المحور..."
-              onSubmitEditing={add}
-              returnKeyType="done"
-              autoFocus
-              style={styles.cleanTopicInput}
-            />
-            <View style={styles.addInlineActions}>
-              <Button title="إضافة" compact onPress={add} disabled={!draft.trim()} />
-              <Button title="إلغاء" variant="ghost" compact onPress={() => { setDraft(''); setIsAddingTopic(false); }} />
-            </View>
-          </View>
-        ) : (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setIsAddingTopic(true)}
-            style={({ pressed }) => [styles.addTopicBtn, pressed && styles.pressed]}
-          >
-            <Icon name="plus" size={16} color={colors.primary} />
-            <Txt style={styles.addTopicBtnText}>إضافة محور جديد</Txt>
-          </Pressable>
-        )}
-
-        {/* General outcomes not tied to any topic */}
-        {generalOutcomes.length > 0 ? (
-          <View style={styles.generalOutcomesBlock}>
-            <View style={styles.generalDocHeader}>
-              <Icon name="target" size={15} color={colors.textSubtle} />
-              <Txt style={styles.generalDocTitle}>توصيات وقرارات عامة</Txt>
-            </View>
-            <View style={styles.docOutcomesList}>
-              {generalOutcomes.map((outcome) => (
-                <OutcomeRow key={outcome.id} board={board} meeting={meeting} outcome={outcome} />
-              ))}
-            </View>
-          </View>
-        ) : null}
-      </View>
-    </Section>
-  );
-}
-
-function TopicRow({
+function TopicActions({
   board,
   meeting,
   topic,
-  outcomes,
   index,
-  last,
+  onSet,
 }: {
   board: Board;
-  /** Passed down rather than looked up again: the parent already holds it, and looking it up here
-      meant asserting it exists — which it may not, if a teammate deletes it mid-render. */
   meeting: Meeting;
   topic: MeetingTopic;
-  outcomes: Outcome[];
   index: number;
-  last: boolean;
+  onSet: (next: SheetMode) => void;
 }) {
-  const [draft, setDraft] = useState('');
-  const [kind, setKind] = useState<OutcomeKind>('task');
-  const [isAdding, setIsAdding] = useState(false);
-  const boardId = board.id;
-  const meetingId = meeting.id;
+  const move = (to: number) => {
+    dispatch(board.id, { type: 'topic/move', meetingId: meeting.id, topicId: topic.id, toIndex: to });
+    onSet(null);
+  };
 
-  const move = (to: number) => dispatch(boardId, { type: 'topic/move', meetingId, topicId: topic.id, toIndex: to });
-
-  const addOutcome = () => {
-    const text = draft.trim();
-    if (!text) return;
-    dispatch(boardId, {
-      type: 'outcome/add',
-      meetingId,
-      outcome: {
-        id: uid(),
-        kind,
-        text,
-        topicId: topic.id,
-        assignee: null,
-        due: null,
-        cardId: null,
+  const actions: SheetAction[] = [
+    { label: 'إضافة توصية', icon: 'plus', onPress: () => onSet({ kind: 'addOutcome', topicId: topic.id }) },
+    { label: 'تعديل العنوان', icon: 'pencil', onPress: () => onSet({ kind: 'renameTopic', topic }) },
+  ];
+  if (topic.subjectId) {
+    actions.push({
+      label: 'كل ما تقرّر عن هذا المحور',
+      icon: 'history',
+      hint: 'عبر كل الاجتماعات',
+      onPress: () => {
+        onSet(null);
+        router.push(`/board/${board.id}/subject/${topic.subjectId}`);
       },
     });
-    setDraft('');
-    setIsAdding(false);
+  }
+  if (index > 0) actions.push({ label: 'نقل لأعلى', icon: 'chevron-up', onPress: () => move(index - 1) });
+  if (index < meeting.topics.length - 1) {
+    actions.push({ label: 'نقل لأسفل', icon: 'chevron-down', onPress: () => move(index + 1) });
+  }
+  actions.push({
+    label: 'حذف المحور',
+    icon: 'trash',
+    destructive: true,
+    hint: 'وما تحته يصير توصيات عامّة',
+    onPress: () => {
+      dispatch(board.id, { type: 'topic/remove', meetingId: meeting.id, topicId: topic.id });
+      onSet(null);
+    },
+  });
+
+  return <ActionList actions={actions} />;
+}
+
+/** What kind of thing was decided, and what it says. The rest is filled in by tapping it after. */
+function AddOutcome({
+  board,
+  meeting,
+  topicId,
+  onDone,
+}: {
+  board: Board;
+  meeting: Meeting;
+  topicId: string | null;
+  onDone: () => void;
+}) {
+  const [kind, setKind] = useState<OutcomeKind>('task');
+  const [draft, setDraft] = useState('');
+
+  const add = () => {
+    const text = draft.trim();
+    if (!text) return;
+    dispatch(board.id, {
+      type: 'outcome/add',
+      meetingId: meeting.id,
+      outcome: { id: uid(), kind, text, topicId, assignee: null, due: null, cardId: null },
+    });
+    onDone();
   };
 
   return (
-    <View style={[styles.docTopicSection, last && styles.docTopicSectionLast]}>
-      {/* Header of the topic as a clean document heading */}
-      <View style={styles.docTopicHeader}>
-        <View style={styles.docTopicNumberBadge}>
-          <Txt style={styles.docTopicNumberText}>{index + 1}</Txt>
-        </View>
-
-        <View style={styles.docTopicTitleWrapper}>
-          <EditableText
-            value={topic.title}
-            onCommit={(title) => dispatch(boardId, { type: 'topic/update', meetingId, topicId: topic.id, patch: { title } })}
-            required
-            placeholder="عنوان المحور"
-            style={styles.docTopicTitleInput}
-            multiline
+    <View style={styles.form}>
+      <View style={styles.wrapRow}>
+        {KINDS.map((k) => (
+          <Chip
+            key={k.kind}
+            label={OUTCOME_NAMES[k.kind]}
+            icon={k.icon}
+            selected={kind === k.kind}
+            onPress={() => setKind(k.kind)}
           />
-        </View>
-
-        <View style={styles.docTopicActions}>
-          {topic.subjectId ? (
-            <IconButton
-              name="history"
-              size={18}
-              label={`كل ما تقرّر عن ${topic.title}`}
-              onPress={() => router.push(`/board/${boardId}/subject/${topic.subjectId}`)}
-            />
-          ) : null}
-          <IconButton name="chevron-up" size={17} label="أعلى" onPress={() => move(index - 1)} disabled={index === 0} />
-          <IconButton name="chevron-down" size={17} label="أسفل" onPress={() => move(index + 1)} disabled={last} />
-          <IconButton
-            name="trash"
-            size={17}
-            label="حذف المحور"
-            onPress={() => dispatch(boardId, { type: 'topic/remove', meetingId, topicId: topic.id })}
-          />
-        </View>
-      </View>
-
-      {/* Decisions/Outcomes under this topic - clean document list */}
-      <View style={styles.docOutcomesList}>
-        {outcomes.map((outcome) => (
-          <OutcomeRow key={outcome.id} board={board} meeting={meeting} outcome={outcome} />
         ))}
-
-        {/* Inline add outcome button / form */}
-        {isAdding ? (
-          <View style={styles.docAddOutcomeBox}>
-            <View style={styles.docKindsRow}>
-              {KINDS.map((k) => (
-                <Pressable
-                  key={k.kind}
-                  onPress={() => setKind(k.kind)}
-                  style={[styles.docKindOption, kind === k.kind && styles.docKindOptionSelected]}
-                >
-                  <Icon name={k.icon} size={12} color={kind === k.kind ? colors.primary : colors.textSubtle} />
-                  <Txt style={[styles.docKindOptionText, kind === k.kind && styles.docKindOptionTextSelected]}>
-                    {OUTCOME_NAMES[k.kind]}
-                  </Txt>
-                </Pressable>
-              ))}
-            </View>
-
-            <Input
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="اكتب ما تم إقراره أو التوصية به..."
-              style={styles.docAddOutcomeInput}
-              multiline
-              autoFocus
-            />
-
-            <View style={styles.docAddOutcomeControls}>
-              <Button title="إضافة التوصية" compact onPress={addOutcome} disabled={!draft.trim()} />
-              <Button title="إلغاء" variant="ghost" compact onPress={() => { setDraft(''); setIsAdding(false); }} />
-            </View>
-          </View>
-        ) : (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setIsAdding(true)}
-            style={({ pressed }) => [styles.docAddDecisionBtn, pressed && styles.pressed]}
-          >
-            <Icon name="plus" size={14} color={colors.textFaint} />
-            <Txt style={styles.docAddDecisionBtnText}>إضافة توصية لهذا المحور</Txt>
-          </Pressable>
-        )}
       </View>
+      <Txt style={styles.formHint}>{KINDS.find((k) => k.kind === kind)?.hint}</Txt>
+      <Input
+        value={draft}
+        onChangeText={setDraft}
+        placeholder="اكتب ما تقرّر أو ما أُوصي به…"
+        style={styles.formInput}
+        multiline
+        autoFocus
+      />
+      <Button title="إضافة" onPress={add} disabled={!draft.trim()} />
     </View>
   );
 }
 
 /**
- * What earlier meetings left open — tasks not done, rules agreed and never written down.
+ * What earlier meetings left open — decided and never written down anywhere it would be acted on.
+ *
+ * It stands at the head of the minutes the way a meeting opens: before anything new, what is still
+ * owed. A line goes to the meeting that decided it, because that is the document it belongs to.
  */
 function FollowUpSection({ board, meeting }: { board: Board; meeting: Meeting }) {
   const groups = stuckBefore(board, meeting.id);
   if (groups.length === 0) return null;
 
-  const total = groups.reduce((sum, g) => sum + g.items.length, 0);
-
   return (
-    <Section title="لم تُرحَّل بعد" icon="history" right={<Txt style={styles.count}>{total}</Txt>}>
+    <View>
+      <DocHeading title="متابعة ما سبق" note="ما تقرّر في اجتماعات سابقة ولم يُرحَّل بعد" />
       {groups.map((group) => (
-        <View key={group.meeting.id} style={styles.group}>
-          <Pressable
-            onPress={() => router.push(`/board/${board.id}/meeting/${group.meeting.id}`)}
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.followHead, pressed && styles.pressed]}
-          >
-            <Txt style={styles.groupTitle}>
-              {group.meeting.title} · {formatLongDate(group.meeting.date)}
-            </Txt>
-            <Icon name="chevron-left" size={14} color={colors.textFaint} />
-          </Pressable>
-
-          {group.items.map((item) => (
-            <View key={item.id} style={styles.followRow}>
-              <Pressable
-                accessibilityRole="checkbox"
-                aria-checked={false}
-                accessibilityLabel={`ترحيل ${item.text}`}
-                onPress={() =>
-                  dispatch(board.id, {
-                    type: 'outcome/update',
-                    meetingId: group.meeting.id,
-                    outcomeId: item.id,
-                    patch: { done: true },
-                  })
-                }
-                style={({ pressed }) => [styles.followCheck, pressed && styles.pressed]}
-              >
-                <Icon name="check" size={14} color={colors.textFaint} />
-              </Pressable>
-              <View style={styles.followBody}>
-                <Txt style={styles.followText} numberOfLines={3}>
-                  {item.text}
-                </Txt>
-                <Txt style={styles.followMeta}>
-                  {OUTCOME_NAMES[item.kind]}
-                  {item.assignee ? ` · ${item.assignee.name}` : ''}
-                  {item.due ? ` · ${formatLongDate(item.due)}` : ''}
-                </Txt>
-              </View>
-            </View>
+        <View key={group.meeting.id}>
+          <Txt style={styles.followFrom}>
+            {group.meeting.title} · {formatLongDate(group.meeting.date)}
+          </Txt>
+          {group.items.map((item, i) => (
+            <DocClause
+              key={item.id}
+              marker={`${i + 1}.`}
+              text={item.text}
+              tone={{ label: 'لم تُرحَّل', done: false }}
+              meta={line(OUTCOME_NAMES[item.kind], item.assignee?.name, item.due && formatLongDate(item.due))}
+              onPress={() => router.push(`/board/${board.id}/meeting/${group.meeting.id}`)}
+            />
           ))}
         </View>
       ))}
-    </Section>
+      <DocRule />
+    </View>
   );
 }
 
@@ -472,7 +486,17 @@ const KINDS: { kind: OutcomeKind; icon: IconName; hint: string }[] = [
 /** The kinds that belong to a person: a task is owed, a responsibility is held. */
 const HAS_OWNER: OutcomeKind[] = ['task', 'assignment'];
 
-function OutcomeRow({ board, meeting, outcome }: { board: Board; meeting: Meeting; outcome: Outcome }) {
+function OutcomeClause({
+  board,
+  meeting,
+  outcome,
+  marker,
+}: {
+  board: Board;
+  meeting: Meeting;
+  outcome: Outcome;
+  marker: string;
+}) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<'detail' | 'topics' | 'cards' | 'people' | 'move'>('detail');
   const [textDraft, setTextDraft] = useState(outcome.text);
@@ -560,83 +584,26 @@ function OutcomeRow({ board, meeting, outcome }: { board: Board; meeting: Meetin
       ? 'تحت أي محور؟'
       : 'تفاصيل التوصية';
 
+  // One measure, the same one the card's bar counts: has it been written down where it is acted on?
+  const moved = needsMoving(outcome)
+    ? { label: hasMoved(outcome, board) ? 'رُحِّلت' : 'لم تُرحَّل', done: hasMoved(outcome, board) }
+    : undefined;
+
   return (
     <>
-      {/* Read-only Outcome Row in document */}
-      <Pressable
-        accessibilityRole="button"
+      <DocClause
+        marker={marker}
+        text={outcome.text || 'بدون نص'}
+        tone={moved}
+        meta={line(
+          OUTCOME_NAMES[outcome.kind],
+          outcome.assignee?.name,
+          outcome.due && formatLongDate(outcome.due),
+          policy && (policyTopic ? `بند في ${policyTopic.title}` : 'بند في السياسات'),
+          card && `على اللوحة: ${card.title}`,
+        )}
         onPress={openSheet}
-        style={({ pressed }) => [styles.docOutcomeItem, pressed && styles.pressed]}
-      >
-        <View style={styles.docOutcomeMainRow}>
-          {outcome.kind === 'task' || outcome.kind === 'policy' ? (
-            <Pressable
-              accessibilityRole="checkbox"
-              aria-checked={outcome.done === true}
-              accessibilityLabel={`ترحيل ${outcome.text}`}
-              onPress={(e) => {
-                e.stopPropagation?.();
-                update({ done: !outcome.done });
-              }}
-              style={({ pressed }) => [styles.docDoneBox, outcome.done && styles.docDoneBoxOn, pressed && styles.pressed]}
-            >
-              {outcome.done ? <Icon name="check" size={11} color={colors.surface} /> : null}
-            </Pressable>
-          ) : (
-            <View style={styles.docBulletPoint} />
-          )}
-
-          <View style={styles.docKindBadge}>
-            <Icon name={KINDS.find((k) => k.kind === outcome.kind)?.icon ?? 'description'} size={11} color={colors.primary} />
-            <Txt style={styles.docKindBadgeText}>{OUTCOME_NAMES[outcome.kind]}</Txt>
-          </View>
-
-          <View style={styles.docOutcomeTextWrap}>
-            <Txt style={[styles.docOutcomeReadText, outcome.done && styles.docOutcomeTextDone]}>
-              {outcome.text || 'بدون نص'}
-            </Txt>
-          </View>
-
-          <Icon name="chevron-left" size={14} color={colors.textFaint} />
-        </View>
-
-        {/* Subtle preview metadata if set */}
-        {outcome.assignee || outcome.due || policy || card ? (
-          <View style={styles.docOutcomeMetaRow}>
-            {outcome.assignee ? (
-              <View style={styles.subtleTag}>
-                <Icon name="user" size={11} color={colors.primary} />
-                <Txt style={[styles.subtleTagText, styles.subtleTagTextActive]}>{outcome.assignee.name}</Txt>
-              </View>
-            ) : null}
-
-            {outcome.due ? (
-              <View style={styles.subtleTag}>
-                <Icon name="calendar" size={11} color={colors.textSubtle} />
-                <Txt style={styles.subtleTagText}>{formatLongDate(outcome.due)}</Txt>
-              </View>
-            ) : null}
-
-            {policy ? (
-              <View style={styles.subtleSuccessTag}>
-                <Icon name="book" size={11} color={colors.success} />
-                <Txt style={styles.subtleSuccessTagText} numberOfLines={1}>
-                  {policyTopic ? `بند في: ${policyTopic.title}` : 'مُقرّة بالسياسات'}
-                </Txt>
-              </View>
-            ) : null}
-
-            {card ? (
-              <View style={styles.subtleSuccessTag}>
-                <Icon name="kanban" size={11} color={colors.success} />
-                <Txt style={styles.subtleSuccessTagText} numberOfLines={1}>
-                  على اللوحة: {card.title}
-                </Txt>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-      </Pressable>
+      />
 
       {/* Outcome Detail & Actions Sheet */}
       <Sheet visible={open} onClose={handleClose} title={sheetTitle}>
@@ -1073,6 +1040,11 @@ function OutcomeRow({ board, meeting, outcome }: { board: Board; meeting: Meetin
   );
 }
 
+/** Joins the halves of a detail line, leaving out whatever is not set. */
+function line(...parts: (string | null | undefined | false)[]): string {
+  return parts.filter((p): p is string => typeof p === 'string' && p.length > 0).join(' · ');
+}
+
 /** Narrow helper so a row's `update` keeps the patch's type without repeating it. */
 function dispatchOutcome(
   boardId: string,
@@ -1101,11 +1073,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { padding: 16, gap: 18, width: '100%', maxWidth: 680, alignSelf: 'center' },
   gone: { padding: 24, textAlign: 'center', color: colors.textSubtle },
-  title: { fontSize: 20, fontWeight: '700', backgroundColor: 'transparent', borderWidth: 0, paddingHorizontal: 0 },
-  place: { fontSize: 15 },
-  count: { marginStart: 'auto', fontSize: 12.5, color: colors.textSubtle },
   note: { fontSize: 13, color: colors.textSubtle, lineHeight: 24 },
-  noteFaint: { fontSize: 11.5, color: colors.textFaint },
   dateRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8 },
   dateBox: {
     flex: 1,
@@ -1131,31 +1099,6 @@ const styles = StyleSheet.create({
   personName: { fontSize: 13.5 },
   personNameOn: { color: colors.surface, fontWeight: '700' },
   pressed: { opacity: 0.7 },
-  heldRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 12 },
-  heldBar: { flex: 1 },
-  group: { gap: 8, marginBottom: 14 },
-  groupTitle: { fontSize: 12.5, fontWeight: '700', color: colors.textSubtle },
-  followHead: { flexDirection: 'row-reverse', alignItems: 'center', gap: 6 },
-  followRow: {
-    flexDirection: 'row-reverse',
-    alignItems: 'flex-start',
-    gap: 10,
-    padding: 11,
-    borderRadius: 10,
-    backgroundColor: colors.surface,
-  },
-  followCheck: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  followBody: { flex: 1, gap: 3 },
-  followText: { fontSize: 14, lineHeight: 24 },
-  followMeta: { fontSize: 11.5, color: colors.textFaint },
 
   /* --- Elegant Document Style for Topics and Decisions --- */
   documentCard: {
@@ -1165,80 +1108,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: 16,
     gap: 18,
-  },
-  emptyDocText: {
-    fontSize: 14,
-    color: colors.textFaint,
-    textAlign: 'center',
-    paddingVertical: 12,
-  },
-  docTopicSection: {
-    gap: 10,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.list,
-  },
-  docTopicSectionLast: {
-    borderBottomWidth: 0,
-    paddingBottom: 4,
-  },
-  docTopicHeader: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    gap: 8,
-  },
-  docTopicNumberBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    backgroundColor: colors.list,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  docTopicNumberText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.textSubtle,
-  },
-  docTopicTitleWrapper: {
-    flex: 1,
-  },
-  docTopicTitleInput: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.text,
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-    paddingHorizontal: 0,
-    paddingVertical: 4,
-  },
-  docTopicActions: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    gap: 2,
-  },
-  docOutcomesList: {
-    paddingEnd: 24,
-    gap: 10,
-  },
-  docOutcomeItem: {
-    gap: 6,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    backgroundColor: '#FAFBFC',
-  },
-  docOutcomeMainRow: {
-    flexDirection: 'row-reverse',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
-  docBulletPoint: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.textFaint,
-    marginTop: 10,
   },
   docDoneBox: {
     width: 18,
@@ -1254,107 +1123,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.success,
     borderColor: colors.success,
   },
-  docKindBadge: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    gap: 3,
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 4,
-    backgroundColor: '#E9F2FF',
-    marginTop: 4,
-  },
-  docKindBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-  docOutcomeTextWrap: {
-    flex: 1,
-  },
-  docOutcomeText: {
-    fontSize: 14.5,
-    lineHeight: 22,
-    color: colors.text,
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-    paddingHorizontal: 0,
-    paddingVertical: 2,
-  },
-  docOutcomeTextDone: {
-    textDecorationLine: 'line-through',
-    color: colors.textFaint,
-  },
-  docOutcomeMetaRow: {
-    flexDirection: 'row-reverse',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: 8,
-    paddingEnd: 26,
-  },
-  subtleTag: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 3,
-    paddingHorizontal: 7,
-    borderRadius: 5,
-    backgroundColor: colors.list,
-  },
-  subtleTagText: {
-    fontSize: 11.5,
-    color: colors.textFaint,
-  },
-  subtleTagTextActive: {
-    color: colors.text,
-    fontWeight: '600',
-  },
-  docDateSteppers: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    gap: 2,
-  },
   miniStepper: {
     width: 22,
     height: 22,
-  },
-  subtleSuccessTag: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 3,
-    paddingHorizontal: 7,
-    borderRadius: 5,
-    backgroundColor: colors.successBg,
-  },
-  subtleSuccessTagText: {
-    fontSize: 11.5,
-    color: colors.success,
-    fontWeight: '600',
-  },
-  subtleActionTag: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 3,
-    paddingHorizontal: 7,
-    borderRadius: 5,
-    backgroundColor: '#E9F2FF',
-  },
-  subtleActionTagText: {
-    fontSize: 11.5,
-    color: colors.primary,
-    fontWeight: '600',
-  },
-  subtleActionTagTextSubtle: {
-    fontSize: 11.5,
-    color: colors.textSubtle,
-    fontWeight: '500',
-  },
-  docConvertLinks: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    gap: 6,
   },
 
   /* Inline add forms */
@@ -1365,19 +1136,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 4,
     alignSelf: 'flex-start',
-  },
-  docAddDecisionBtnText: {
-    fontSize: 12.5,
-    color: colors.textFaint,
-  },
-  docAddOutcomeBox: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    padding: 10,
-    gap: 8,
-    marginTop: 4,
   },
   docKindsRow: {
     flexDirection: 'row-reverse',
@@ -1403,76 +1161,6 @@ const styles = StyleSheet.create({
   docKindOptionTextSelected: {
     color: colors.primary,
     fontWeight: '700',
-  },
-  docAddOutcomeInput: {
-    fontSize: 14,
-    minHeight: 46,
-    backgroundColor: colors.list,
-    borderWidth: 0,
-    borderRadius: 6,
-    padding: 8,
-  },
-  docAddOutcomeControls: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    gap: 8,
-  },
-
-  addTopicBtn: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: colors.border,
-    backgroundColor: 'transparent',
-  },
-  addTopicBtnText: {
-    fontSize: 14,
-    color: colors.primary,
-    fontWeight: '600',
-  },
-  addTopicInline: {
-    gap: 8,
-    padding: 10,
-    borderRadius: 8,
-    backgroundColor: colors.list,
-  },
-  cleanTopicInput: {
-    fontSize: 15,
-    fontWeight: '600',
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  addInlineActions: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    gap: 8,
-  },
-
-  generalOutcomesBlock: {
-    marginTop: 12,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: colors.list,
-    gap: 10,
-  },
-  generalDocHeader: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    gap: 6,
-  },
-  generalDocTitle: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: colors.textSubtle,
   },
 
   /* Sheets */
@@ -1550,11 +1238,6 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     color: colors.danger,
     fontWeight: '600',
-  },
-  docOutcomeReadText: {
-    fontSize: 14.5,
-    lineHeight: 22,
-    color: colors.text,
   },
   sheetFieldGroup: {
     gap: 6,
@@ -1653,4 +1336,11 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: '600',
   },
+  lead: { fontWeight: '700', color: colors.text },
+  form: { paddingHorizontal: 16, paddingBottom: 8, gap: 10 },
+  formLabel: { fontSize: 12, fontWeight: '700', color: colors.textFaint, marginTop: 4 },
+  formValue: { fontSize: 15, lineHeight: 26 },
+  formHint: { fontSize: 12, color: colors.textFaint },
+  formInput: { minHeight: 90, textAlignVertical: 'top' },
+  followFrom: { fontSize: 12, fontWeight: '700', color: colors.textSubtle, lineHeight: 24, marginTop: 8 },
 });
