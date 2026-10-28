@@ -22,7 +22,7 @@ import { ModalHeader } from '../../../../components/ui/Layout';
 import { ActionList, PromptForm, Sheet, type SheetAction } from '../../../../components/ui/Sheet';
 import { Input, Txt } from '../../../../components/ui/Txt';
 import { addDays, formatLongDate, todayISO } from '../../../../lib/dates';
-import { hasMoved, isHeld, movedProgress, needsMoving } from '../../../../lib/meetings';
+import { isHeld, movedProgress } from '../../../../lib/meetings';
 import { uid } from '../../../../lib/ids';
 import { goBack } from '../../../../lib/nav';
 import { ordinal } from '../../../../lib/text';
@@ -547,17 +547,11 @@ function OutcomeClause({
       ? 'تحت أي محور؟'
       : 'تفاصيل التوصية';
 
-  // One measure, the same one the card's bar counts: has it been written down where it is acted on?
-  const moved = needsMoving(outcome)
-    ? { label: hasMoved(outcome, board) ? 'رُحِّلت' : 'لم تُرحَّل', done: hasMoved(outcome, board) }
-    : undefined;
-
   return (
     <>
       <DocClause
         marker={marker}
         text={outcome.text || 'بدون نص'}
-        tone={moved}
         meta={line(
           OUTCOME_NAMES[outcome.kind],
           outcome.assignee?.name,

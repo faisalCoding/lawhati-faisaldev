@@ -79,15 +79,12 @@ export function DocClause({
   marker,
   text,
   meta,
-  tone,
   struck,
   onPress,
 }: {
   marker: string;
   text: string;
   meta?: string;
-  /** A word of standing before the detail, such as «رُحِّلت» or «لم تُرحَّل». */
-  tone?: { label: string; done: boolean };
   struck?: boolean;
   onPress?: () => void;
 }) {
@@ -97,13 +94,7 @@ export function DocClause({
         <Txt style={styles.marker}>{marker}</Txt>
         <View style={styles.clauseBody}>
           <Txt style={[styles.clauseText, struck && styles.struck]}>{text}</Txt>
-          {tone || meta ? (
-            <Txt style={styles.clauseMeta}>
-              {tone ? <Txt style={tone.done ? styles.toneDone : styles.toneOpen}>{tone.label}</Txt> : null}
-              {tone && meta ? ' · ' : null}
-              {meta}
-            </Txt>
-          ) : null}
+          {meta ? <Txt style={styles.clauseMeta}>{meta}</Txt> : null}
         </View>
       </View>
     </DocTap>
@@ -176,8 +167,6 @@ const styles = StyleSheet.create({
   clauseText: { fontSize: 14.5, lineHeight: 28 },
   struck: { textDecorationLine: 'line-through', color: colors.textFaint },
   clauseMeta: { fontSize: 11.5, color: colors.textFaint, lineHeight: 22 },
-  toneDone: { color: colors.success, fontWeight: '700' },
-  toneOpen: { color: colors.warning, fontWeight: '700' },
   note: { fontSize: 13.5, color: colors.textFaint, lineHeight: 26, paddingVertical: 4 },
   add: { flexDirection: 'row-reverse', alignItems: 'center', gap: 6, paddingVertical: 10 },
   addText: { fontSize: 13, color: colors.textFaint },
