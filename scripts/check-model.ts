@@ -227,9 +227,12 @@ const strip = (b: Board) =>
         done: o.done ?? false,
       })),
     })),
+    policyTopics: (b.policyTopics ?? []).map((t) => ({ ...t, columnId: t.columnId ?? null })),
     policies: (b.policies ?? []).map((x) => ({
       ...x,
-      columnId: x.columnId ?? null,
+      topicId: x.topicId ?? null,
+      subtopicId: x.subtopicId ?? null,
+      effectiveFrom: x.effectiveFrom ?? null,
       meetingId: x.meetingId ?? null,
       repealedAt: x.repealedAt ?? null,
       // Left out on purpose. The record is append-only and an undo is a thing that happened to
@@ -343,8 +346,8 @@ roundTrip(withOutcomeUnderTopic, op({ type: 'outcome/update', meetingId: 'a', ou
 
 // ── السياسات ────────────────────────────────────────────────────────────────
 const column = (id: string, title = `عمود ${id}`, kind: BoardColumn['kind'] = 'policies'): BoardColumn => ({ id, title, kind });
-const policy = (id: string, text = `سياسة ${id}`, columnId: string | null = null): Policy =>
-  ({ id, text, columnId, at: 1 });
+const policy = (id: string, text = `سياسة ${id}`, topicId: string | null = null): Policy =>
+  ({ id, text, topicId, at: 1 });
 const polsOf = (b: Board) => (b.policies ?? []).map((x) => x.id).join('');
 const colsOf = (b: Board) => (b.columns ?? []).map((c) => c.id).join('');
 
@@ -354,23 +357,47 @@ ok('تُضاف أعمدة السياسات', colsOf(sec) === 'c1c2');
 ok('بلا تكرار', applyOp(sec, op({ type: 'column/add', column: column('c1', 'الرحلات') })) === sec);
 ok('وتُرتَّب', colsOf(applyOp(sec, op({ type: 'column/move', columnId: 'c2', toIndex: 0 }))) === 'c2c1');
 
-const pol = applyOp(
-  applyOp(sec, op({ type: 'policy/add', policy: policy('p1', 'يُمنع الالتحاق عند التأخر', 'c1') })),
-  op({ type: 'policy/add', policy: policy('p2', 'حد التأخر بلا عذر', 'c2') }),
+// العمود يحمل مواضيع، والبنود تحتها — كما تُكتب المحاضر: موضوع، فموضوع فرعي، فبند.
+const topics = applyOp(
+  applyOp(sec, op({ type: 'topic/addPolicy', topic: { id: 'T1', title: 'ضوابط الرحلات', columnId: 'c1', subtopics: [] } })),
+  op({ type: 'topic/addPolicy', topic: { id: 'T2', title: 'الحضور والغياب', columnId: 'c2', subtopics: [] } }),
 );
-ok('تُضاف السياسات', polsOf(pol) === 'p1p2');
-ok('ويُذكر عمودها في النشاط', (pol.activity?.at(-1)?.what as { column: string }).column === 'الحضور والغياب');
+ok('تُضاف مواضيع السياسات إلى أعمدتها', (topics.policyTopics ?? []).map((t) => t.id).join('') === 'T1T2');
+
+const pol = applyOp(
+  applyOp(topics, op({ type: 'policy/add', policy: policy('p1', 'يُمنع الالتحاق عند التأخر', 'T1') })),
+  op({ type: 'policy/add', policy: policy('p2', 'حد التأخر بلا عذر', 'T2') }),
+);
+ok('تُضاف البنود تحت مواضيعها', polsOf(pol) === 'p1p2');
+ok('ويُذكر موضوعها في النشاط', (pol.activity?.at(-1)?.what as { column: string }).column === 'الحضور والغياب');
+
+// الموضوع الفرعي: حذفه يُبقي بنوده في موضوعها بلا عنوان فرعي
+const subbed = applyOp(
+  applyOp(pol, op({ type: 'subtopic/add', topicId: 'T1', subtopic: { id: 'S1', title: 'الانضباط والمواعيد' } })),
+  op({ type: 'policy/update', policyId: 'p1', patch: { subtopicId: 'S1' } }),
+);
+ok('يُضاف موضوع فرعي', (subbed.policyTopics ?? [])[0].subtopics.map((x) => x.id).join('') === 'S1');
+ok('ويُنسَب البند إليه', (subbed.policies ?? [])[0].subtopicId === 'S1');
+const cutSub = applyOp(subbed, op({ type: 'subtopic/remove', topicId: 'T1', subtopicId: 'S1' }));
+ok('وحذفه لا يحذف بنوده', (cutSub.policies ?? []).length === 2);
+ok('بل تبقى في موضوعها بلا عنوان فرعي', (cutSub.policies ?? [])[0].topicId === 'T1' && (cutSub.policies ?? [])[0].subtopicId === null);
+roundTripP(subbed, op({ type: 'subtopic/remove', topicId: 'T1', subtopicId: 'S1' }), 'حذف موضوع فرعي');
+roundTripP(pol, op({ type: 'subtopic/add', topicId: 'T1', subtopic: { id: 'S9', title: 'س' } }), 'إضافة موضوع فرعي');
 
 const amended = applyOp(pol, op({ type: 'policy/update', policyId: 'p2', patch: { text: 'يمكن تعويض تأخّرات الأسبوع نفسه' } }));
 ok('تُعدَّل السياسة', (amended.policies ?? [])[1].text === 'يمكن تعويض تأخّرات الأسبوع نفسه');
 ok('ويُحفظ نصّها السابق في السجلّ', (amended.activity?.at(-1)?.what as { from: string }).from === 'حد التأخر بلا عذر');
 ok('نفس النصّ لا يغيّر شيئًا', applyOp(amended, op({ type: 'policy/update', policyId: 'p2', patch: { text: 'يمكن تعويض تأخّرات الأسبوع نفسه' } })) === amended);
 
-// حذف القسم لا يحذف سياساته
+// حذف العمود يحمل مواضيعه، والبنود معلّقة بها فتنتقل بلا أن تُمَسّ
 const cutSec = applyOp(pol, op({ type: 'column/remove', columnId: 'c1', moveTo: 'c2' }));
-ok('حذف العمود مع النقل يُبقي سياساته', polsOf(cutSec) === 'p1p2');
-ok('وتنتقل إلى العمود الآخر', (cutSec.policies ?? [])[0].columnId === 'c2');
-ok('ويُذكر عددها وإلى أين ذهبت', (cutSec.activity?.at(-1)?.what as { cards: number; movedTo: string }).cards === 1);
+ok('حذف العمود مع النقل يُبقي البنود كلها', polsOf(cutSec) === 'p1p2');
+ok('وينتقل الموضوع إلى العمود الآخر', (cutSec.policyTopics ?? []).find((t) => t.id === 'T1')?.columnId === 'c2');
+ok('ويبقى البند تحت موضوعه', (cutSec.policies ?? [])[0].topicId === 'T1');
+ok('ويُذكر عدد مواضيعه', (cutSec.activity?.at(-1)?.what as { cards: number; movedTo: string }).cards === 1);
+
+const wiped = applyOp(pol, op({ type: 'column/remove', columnId: 'c1' }));
+ok('وحذفه بلا نقل يأخذ موضوعه وبنوده', polsOf(wiped) === 'p2' && (wiped.policyTopics ?? []).length === 1);
 
 // من الاجتماع إلى السياسات
 const mt = applyOp(pol, op({ type: 'meeting/add', meeting: meeting('a', '2026-01-10') }));
@@ -397,8 +424,10 @@ ok('وتعديل سياسة قائمة يُسجَّل تعديلًا', (amendExi
 roundTripP(sec, op({ type: 'column/add', column: column('c3') }), 'إضافة عمود');
 roundTripP(sec, op({ type: 'column/update', columnId: 'c1', patch: { title: 'الرحلات والمخيمات' } }), 'تعديل اسم عمود');
 roundTripP(sec, op({ type: 'column/move', columnId: 'c1', toIndex: 1 }), 'ترتيب عمود');
-roundTripP(pol, op({ type: 'column/remove', columnId: 'c1', moveTo: 'c2' }), 'حذف عمود مع نقل محتواه');
+roundTripP(pol, op({ type: 'column/remove', columnId: 'c1', moveTo: 'c2' }), 'حذف عمود مع نقل مواضيعه');
 roundTripP(pol, op({ type: 'column/remove', columnId: 'c1' }), 'حذف عمود وما فيه');
+roundTripP(pol, op({ type: 'topic/removePolicy', topicId: 'T1' }), 'حذف موضوع سياسات وبنوده');
+roundTripP(pol, op({ type: 'topic/removePolicy', topicId: 'T1', moveTo: 'T2' }), 'حذف موضوع مع نقل بنوده');
 roundTripP(pol, op({ type: 'policy/add', policy: policy('p3') }), 'إضافة سياسة');
 roundTripP(pol, op({ type: 'policy/update', policyId: 'p1', patch: { text: 'نصّ آخر', columnId: 'c2' } }), 'تعديل سياسة ونقلها');
 roundTripP(pol, op({ type: 'policy/move', policyId: 'p1', toIndex: 1 }), 'ترتيب سياسة');

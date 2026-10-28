@@ -209,6 +209,28 @@ export interface BoardColumn {
   kind: BoardColumnKind;
 }
 
+/** A heading inside a policy topic: «الانضباط والمواعيد» under «ضوابط وإجراءات الرحلات». */
+export interface PolicySubtopic {
+  id: string;
+  title: string;
+}
+
+/**
+ * A subject the board's standing rules are organised under, and what a policies column holds.
+ *
+ * The minutes are already written this way. The third meeting's notes read «ضوابط وإجراءات
+ * الرحلات» and then, under it, «المرجعية والقرارات», «الانضباط والمواعيد», «المالية» — a heading,
+ * its sub-headings, and a rule under each. A flat list of rules loses that, and a rule read out of
+ * its subject is a rule half understood.
+ */
+export interface PolicyTopic {
+  id: string;
+  title: string;
+  /** The column it sits in. Unfiled reads as the first policies column. */
+  columnId?: string | null;
+  subtopics: PolicySubtopic[];
+}
+
 /** One thing that happened to a standing rule, kept with the rule itself. */
 export interface PolicyEvent {
   at: number;
@@ -239,8 +261,17 @@ export interface PolicyEvent {
 export interface Policy {
   id: string;
   text: string;
-  /** The column it is filed under. Unfiled reads as the first policies column. */
-  columnId?: string | null;
+  /** The topic it belongs to. This is its home; losing it would orphan the rule. */
+  topicId?: string | null;
+  /** The sub-heading within that topic, or null for one not filed under any. */
+  subtopicId?: string | null;
+  /**
+   * The day it takes effect, in YYYY-MM-DD form.
+   *
+   * A rule agreed on a Sunday often starts the following week. Separate from `at`, which is when
+   * it was written down, and from `repealedAt`, which is when it stopped.
+   */
+  effectiveFrom?: string | null;
   /** The meeting it came out of, when it came from one rather than being written down directly. */
   meetingId?: string | null;
   at: number;
@@ -273,7 +304,9 @@ export interface Board {
   meetings?: Meeting[];
   /** The subjects its meetings keep returning to, in the order they are gone through. */
   agenda?: AgendaSubject[];
-  /** The standing rules it works by, in the order they are read. Older boards lack it. */
+  /** The subjects its standing rules are organised under. Older boards lack it. */
+  policyTopics?: PolicyTopic[];
+  /** The rules themselves, in the order they are read. Older boards lack it. */
   policies?: Policy[];
   /** Its meeting and policy columns, in the order they are shown, after the task lists. */
   columns?: BoardColumn[];
@@ -370,9 +403,18 @@ export type ActivityWhat =
   | { type: 'column/move'; column: string }
   | { type: 'column/remove'; column: string; cards: number; movedTo: string | null }
   | { type: 'meeting/file'; meeting: string; column: string | null }
+  | { type: 'policyTopic/add'; topic: string }
+  | { type: 'policyTopic/title'; topic: string; from: string }
+  | { type: 'policyTopic/move'; topic: string }
+  | { type: 'policyTopic/remove'; topic: string; clauses: number; movedTo: string | null }
+  | { type: 'subtopic/add'; topic: string; subtopic: string }
+  | { type: 'subtopic/title'; subtopic: string; from: string }
+  | { type: 'subtopic/move'; subtopic: string }
+  | { type: 'subtopic/remove'; subtopic: string; clauses: number }
+  | { type: 'policy/effective'; policy: string; from: string | null }
   | { type: 'policy/add'; policy: string; column: string | null }
   | { type: 'policy/text'; policy: string; from: string }
-  | { type: 'policy/file'; policy: string; column: string | null }
+  | { type: 'policy/file'; policy: string; topic: string | null; subtopic: string | null }
   | { type: 'policy/move'; policy: string }
   | { type: 'policy/repeal'; policy: string }
   | { type: 'policy/restore'; policy: string }
@@ -482,8 +524,22 @@ export type OpInput =
    * app asks about separately — minutes are the most valuable thing on this board.
    */
   | { type: 'column/remove'; columnId: string; moveTo?: string | null }
+  | { type: 'topic/addPolicy'; topic: PolicyTopic; index?: number }
+  | { type: 'topic/updatePolicy'; topicId: string; patch: Partial<Pick<PolicyTopic, 'title' | 'columnId'>> }
+  | { type: 'topic/movePolicy'; topicId: string; toIndex: number }
+  /** `moveTo` names the topic its rules go to; without it they go with it. */
+  | { type: 'topic/removePolicy'; topicId: string; moveTo?: string | null }
+  | { type: 'subtopic/add'; topicId: string; subtopic: PolicySubtopic; index?: number }
+  | { type: 'subtopic/update'; topicId: string; subtopicId: string; patch: Partial<Pick<PolicySubtopic, 'title'>> }
+  | { type: 'subtopic/move'; topicId: string; subtopicId: string; toIndex: number }
+  /** Its rules stay in the topic, under no sub-heading. */
+  | { type: 'subtopic/remove'; topicId: string; subtopicId: string }
   | { type: 'policy/add'; policy: Policy; index?: number }
-  | { type: 'policy/update'; policyId: string; patch: Partial<Pick<Policy, 'text' | 'columnId' | 'meetingId'>> }
+  | {
+      type: 'policy/update';
+      policyId: string;
+      patch: Partial<Pick<Policy, 'text' | 'topicId' | 'subtopicId' | 'effectiveFrom' | 'meetingId'>>;
+    }
   | { type: 'policy/move'; policyId: string; toIndex: number }
   /**
    * Repeals it: it leaves the board and keeps its record.

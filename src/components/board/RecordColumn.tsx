@@ -2,14 +2,15 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { formatLongDate, toISODate, todayISO } from '../../lib/dates';
+import { addDays, formatLongDate, toISODate, todayISO } from '../../lib/dates';
 import { uid } from '../../lib/ids';
 import { isHeld, movedProgress } from '../../lib/meetings';
 import { pluralPolicies, pluralTopics } from '../../lib/text';
 import { colors, LIST_GAP, LIST_WIDTH } from '../../lib/theme';
-import type { Board, BoardColumn, Meeting, Policy, PolicyEvent } from '../../shared/types';
+import type { Board, BoardColumn, Meeting, Policy, PolicyEvent, PolicyTopic } from '../../shared/types';
 import { dispatch, startMeeting } from '../../store/actions';
-import { Icon, IconButton } from '../ui/Buttons';
+import { Chip, Icon, IconButton } from '../ui/Buttons';
+import { EditableText } from '../ui/EditableText';
 import { ActionList, Sheet, type SheetAction } from '../ui/Sheet';
 import { Input, Txt } from '../ui/Txt';
 
@@ -39,15 +40,16 @@ export function RecordColumn({
 }) {
   const [sheet, setSheet] = useState<'menu' | 'remove' | 'rename' | 'agenda' | null>(null);
   const [moving, setMoving] = useState<{ id: string; text: string } | null>(null);
-  const [editing, setEditing] = useState<Policy | null>(null);
+  const [editing, setEditing] = useState<PolicyTopic | null>(null);
   const [composing, setComposing] = useState(false);
 
   const siblings = (board.columns ?? []).filter((c) => c.kind === column.kind && c.id !== column.id);
   const items =
     column.kind === 'meetings'
       ? mine(board.meetings ?? [], column, board)
-      // A repealed rule leaves the board and keeps its record; it is read from its own history.
-      : mine((board.policies ?? []).filter((x) => !x.repealedAt), column, board);
+      // A policies column holds subjects, not rules. The rules live two levels down, which is how
+      // the minutes already write them.
+      : mine(board.policyTopics ?? [], column, board);
 
   const menu: SheetAction[] = [{ label: 'إعادة التسمية', icon: 'pencil', onPress: () => setSheet('rename') }];
   if (column.kind === 'meetings') {
@@ -100,8 +102,8 @@ export function RecordColumn({
       return;
     }
     dispatch(board.id, {
-      type: 'policy/add',
-      policy: { id: uid(), text, columnId: column.id, meetingId: null, at: Date.now() },
+      type: 'topic/addPolicy',
+      topic: { id: uid(), title: text, columnId: column.id, subtopics: [] },
     });
   };
 
@@ -130,24 +132,21 @@ export function RecordColumn({
                 onMove={siblings.length ? () => setMoving({ id: m.id, text: m.title }) : undefined}
               />
             ))
-          : (items as Policy[]).map((p, i) => (
-              <PolicyCard
-                key={p.id}
+          : (items as PolicyTopic[]).map((t) => (
+              <TopicCard
+                key={t.id}
                 board={board}
-                policy={p}
-                onEdit={() => setEditing(p)}
-                onMove={siblings.length ? () => setMoving({ id: p.id, text: p.text }) : undefined}
-                onShift={(delta) => shiftPolicy(board, p, i, items as Policy[], delta)}
-                first={i === 0}
-                last={i === items.length - 1}
+                topic={t}
+                onOpen={() => setEditing(t)}
+                onMove={siblings.length ? () => setMoving({ id: t.id, text: t.title }) : undefined}
               />
             ))}
       </ScrollView>
 
       {composing ? (
         <Composer
-          placeholder={column.kind === 'meetings' ? 'عنوان الاجتماع' : 'نصّ السياسة'}
-          multiline={column.kind === 'policies'}
+          placeholder={column.kind === 'meetings' ? 'عنوان الاجتماع' : 'موضوع جديد'}
+
           onAdd={add}
           onCancel={() => setComposing(false)}
         />
@@ -158,7 +157,7 @@ export function RecordColumn({
           style={({ pressed }) => [styles.addRow, pressed && styles.pressed]}
         >
           <Icon name="plus" size={16} color={colors.textSubtle} />
-          <Txt style={styles.addText}>{column.kind === 'meetings' ? 'اجتماع جديد' : 'سياسة جديدة'}</Txt>
+          <Txt style={styles.addText}>{column.kind === 'meetings' ? 'اجتماع جديد' : 'موضوع جديد'}</Txt>
         </Pressable>
       )}
 
@@ -191,7 +190,7 @@ export function RecordColumn({
                   board.id,
                   column.kind === 'meetings'
                     ? { type: 'meeting/update', meetingId: moving.id, patch: { columnId: sib.id } }
-                    : { type: 'policy/update', policyId: moving.id, patch: { columnId: sib.id } },
+                    : { type: 'topic/updatePolicy', topicId: moving.id, patch: { columnId: sib.id } },
                 );
                 setMoving(null);
               }}
@@ -204,25 +203,11 @@ export function RecordColumn({
         </View>
       </Sheet>
 
-      <Sheet visible={editing !== null} onClose={() => setEditing(null)} title="السياسة">
-        {editing ? <EditPolicy board={board} policy={editing} onDone={() => setEditing(null)} /> : null}
+      <Sheet visible={editing !== null} onClose={() => setEditing(null)} title={editing?.title ?? ''}>
+        {editing ? <TopicSheet board={board} topic={editing} /> : null}
       </Sheet>
     </View>
   );
-}
-
-/**
- * Moves a policy one place within its column.
- *
- * The board holds every policy in one array, so a neighbour in the column may be many places away
- * in it. The swap is made against the neighbour's real index, not the one on screen.
- */
-function shiftPolicy(board: Board, policy: Policy, index: number, column: Policy[], delta: number) {
-  const neighbour = column[index + delta];
-  if (!neighbour) return;
-  const to = (board.policies ?? []).findIndex((p) => p.id === neighbour.id);
-  if (to < 0) return;
-  dispatch(board.id, { type: 'policy/move', policyId: policy.id, toIndex: to });
 }
 
 /** Everything filed here — including anything with no column at all, which the first one adopts. */
@@ -366,63 +351,201 @@ function MeetingCard({
   );
 }
 
-function PolicyCard({
+function TopicCard({
   board,
-  policy,
-  onEdit,
+  topic,
+  onOpen,
   onMove,
-  onShift,
-  first,
-  last,
 }: {
   board: Board;
-  policy: Policy;
-  onEdit: () => void;
+  topic: PolicyTopic;
+  onOpen: () => void;
   onMove?: () => void;
-  onShift: (delta: number) => void;
-  first: boolean;
-  last: boolean;
 }) {
-  const meeting = policy.meetingId ? board.meetings?.find((m) => m.id === policy.meetingId) : undefined;
+  const clauses = livingClauses(board, topic.id);
   return (
     <Pressable
-      onPress={onEdit}
+      onPress={onOpen}
       onLongPress={onMove}
       accessibilityRole="button"
-      accessibilityHint={onMove ? 'اضغط مطوّلًا لنقلها إلى عمود آخر' : undefined}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
-      <Txt style={styles.policyText}>{policy.text}</Txt>
-      <View style={styles.policyFoot}>
-        {meeting ? (
-          <View style={styles.from}>
-            <Icon name="calendar" size={11} color={colors.textFaint} />
-            <Txt style={styles.fromText} numberOfLines={1}>
-              {meeting.title}
-            </Txt>
-          </View>
-        ) : (
-          <View style={styles.from} />
-        )}
-        {/* A rule's order is a choice, unlike a meeting's, so it can be put where it reads best. */}
+      <Txt style={styles.cardTitle} numberOfLines={2}>
+        {topic.title}
+      </Txt>
+      <View style={styles.cardFoot}>
+        <Txt style={styles.cardMeta} numberOfLines={1}>
+          {topic.subtopics.length ? `${topic.subtopics.length} موضوعًا فرعيًّا · ` : ''}
+          {pluralPolicies(clauses.length)}
+        </Txt>
         {onMove ? <IconButton name="move" label="نقل إلى عمود آخر" size={16} onPress={onMove} /> : null}
-        <IconButton name="chevron-up" label="أعلى" size={16} onPress={() => onShift(-1)} disabled={first} />
-        <IconButton name="chevron-down" label="أسفل" size={16} onPress={() => onShift(1)} disabled={last} />
       </View>
     </Pressable>
   );
 }
 
+/** The rules still in force under a topic. A repealed one keeps its record and leaves the board. */
+function livingClauses(board: Board, topicId: string, subtopicId?: string | null): Policy[] {
+  return (board.policies ?? []).filter(
+    (p) =>
+      !p.repealedAt &&
+      (p.topicId ?? null) === topicId &&
+      (subtopicId === undefined || (p.subtopicId ?? null) === subtopicId),
+  );
+}
+
+/**
+ * One policy subject: its sub-headings, and the rules under each.
+ *
+ * Three levels, because the minutes are written in three: «ضوابط وإجراءات الرحلات», then
+ * «الانضباط والمواعيد», then the rule itself. A flat list would lose the reading.
+ */
+function TopicSheet({ board, topic }: { board: Board; topic: PolicyTopic }) {
+  const [draft, setDraft] = useState('');
+  const [editing, setEditing] = useState<Policy | null>(null);
+  const loose = livingClauses(board, topic.id, null);
+
+  return (
+    <ScrollView style={styles.topicSheet} keyboardShouldPersistTaps="handled">
+      {topic.subtopics.map((sub, i) => (
+        <View key={sub.id} style={styles.sub}>
+          <View style={styles.subHead}>
+            <EditableText
+              value={sub.title}
+              onCommit={(title) =>
+                dispatch(board.id, { type: 'subtopic/update', topicId: topic.id, subtopicId: sub.id, patch: { title } })
+              }
+              required
+              placeholder="الموضوع الفرعي"
+              style={styles.subTitle}
+            />
+            <IconButton
+              name="chevron-up"
+              label="أعلى"
+              size={16}
+              disabled={i === 0}
+              onPress={() =>
+                dispatch(board.id, { type: 'subtopic/move', topicId: topic.id, subtopicId: sub.id, toIndex: i - 1 })
+              }
+            />
+            <IconButton
+              name="chevron-down"
+              label="أسفل"
+              size={16}
+              disabled={i === topic.subtopics.length - 1}
+              onPress={() =>
+                dispatch(board.id, { type: 'subtopic/move', topicId: topic.id, subtopicId: sub.id, toIndex: i + 1 })
+              }
+            />
+            <IconButton
+              name="trash"
+              label="حذف الموضوع الفرعي"
+              size={16}
+              onPress={() => dispatch(board.id, { type: 'subtopic/remove', topicId: topic.id, subtopicId: sub.id })}
+            />
+          </View>
+          <Clauses board={board} topic={topic} subtopicId={sub.id} onEdit={setEditing} />
+        </View>
+      ))}
+
+      {loose.length ? (
+        <View style={styles.sub}>
+          <Txt style={styles.subLoose}>بلا موضوع فرعي</Txt>
+          <Clauses board={board} topic={topic} subtopicId={null} onEdit={setEditing} />
+        </View>
+      ) : null}
+
+      <View style={styles.agendaAdd}>
+        <Input
+          value={draft}
+          onChangeText={setDraft}
+          placeholder="موضوع فرعي جديد"
+          onSubmitEditing={() => {
+            const title = draft.trim();
+            if (!title) return;
+            dispatch(board.id, { type: 'subtopic/add', topicId: topic.id, subtopic: { id: uid(), title } });
+            setDraft('');
+          }}
+          returnKeyType="done"
+          style={styles.agendaInput}
+        />
+        <IconButton
+          name="plus"
+          label="إضافة موضوع فرعي"
+          disabled={!draft.trim()}
+          onPress={() => {
+            const title = draft.trim();
+            if (!title) return;
+            dispatch(board.id, { type: 'subtopic/add', topicId: topic.id, subtopic: { id: uid(), title } });
+            setDraft('');
+          }}
+        />
+      </View>
+
+      <Sheet visible={editing !== null} onClose={() => setEditing(null)} title="البند">
+        {editing ? <EditClause board={board} clause={editing} onDone={() => setEditing(null)} /> : null}
+      </Sheet>
+    </ScrollView>
+  );
+}
+
+function Clauses({
+  board,
+  topic,
+  subtopicId,
+  onEdit,
+}: {
+  board: Board;
+  topic: PolicyTopic;
+  subtopicId: string | null;
+  onEdit: (clause: Policy) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const clauses = livingClauses(board, topic.id, subtopicId);
+
+  const add = () => {
+    const text = draft.trim();
+    if (!text) return;
+    dispatch(board.id, {
+      type: 'policy/add',
+      policy: { id: uid(), text, topicId: topic.id, subtopicId, meetingId: null, at: Date.now() },
+    });
+    setDraft('');
+  };
+
+  return (
+    <View style={styles.clauses}>
+      {clauses.map((c) => (
+        <Pressable
+          key={c.id}
+          accessibilityRole="button"
+          onPress={() => onEdit(c)}
+          style={({ pressed }) => [styles.clause, pressed && styles.pressed]}
+        >
+          <Txt style={styles.clauseText}>{c.text}</Txt>
+          {c.effectiveFrom ? <Txt style={styles.clauseFrom}>سارٍ من {formatLongDate(c.effectiveFrom)}</Txt> : null}
+        </Pressable>
+      ))}
+      <View style={styles.clauseAdd}>
+        <Input
+          value={draft}
+          onChangeText={setDraft}
+          placeholder="بند جديد"
+          multiline
+          style={styles.clauseInput}
+        />
+        <IconButton name="plus" label="إضافة بند" size={18} onPress={add} disabled={!draft.trim()} />
+      </View>
+    </View>
+  );
+}
+
 /**
  * The subjects these meetings keep returning to. Every new meeting starts from them.
- *
- * It lives in the meetings column's own menu rather than on a screen of its own: it is set once
- * and read rarely, and it belongs to the column it shapes.
  */
 function AgendaSheet({ board }: { board: Board }) {
   const [draft, setDraft] = useState('');
   const agenda = board.agenda ?? [];
-
   const add = () => {
     const title = draft.trim();
     if (!title) return;
@@ -431,11 +554,10 @@ function AgendaSheet({ board }: { board: Board }) {
   };
 
   return (
-    <ScrollView style={styles.agendaSheet} keyboardShouldPersistTaps="handled">
+    <ScrollView style={styles.topicSheet} keyboardShouldPersistTaps="handled">
       <Txt style={styles.agendaNote}>
         يبدأ كل اجتماع جديد بهذه المحاور جاهزةً للتدوين، ويبقى بإمكانك إضافة محاور طارئة داخله.
       </Txt>
-
       {agenda.map((subject, index) => (
         <View key={subject.id} style={styles.agendaRow}>
           <Txt style={styles.agendaTitle} numberOfLines={2}>
@@ -469,7 +591,6 @@ function AgendaSheet({ board }: { board: Board }) {
           />
         </View>
       ))}
-
       <View style={styles.agendaAdd}>
         <Input
           value={draft}
@@ -506,8 +627,9 @@ function RenameColumn({ board, column, onDone }: { board: Board; column: BoardCo
   );
 }
 
-function EditPolicy({ board, policy, onDone }: { board: Board; policy: Policy; onDone: () => void }) {
+function EditClause({ board, clause: policy, onDone }: { board: Board; clause: Policy; onDone: () => void }) {
   const [text, setText] = useState(policy.text);
+  const today = todayISO();
   const meeting = policy.meetingId ? board.meetings?.find((m) => m.id === policy.meetingId) : undefined;
   return (
     <View style={styles.remove}>
@@ -525,6 +647,47 @@ function EditPolicy({ board, policy, onDone }: { board: Board; policy: Policy; o
           <Txt style={styles.fromText}>من {meeting.title}</Txt>
         </Pressable>
       ) : null}
+      <View style={styles.wrapChips}>
+        <Chip
+          label={policy.effectiveFrom ? `سارٍ من ${formatLongDate(policy.effectiveFrom)}` : 'بلا تاريخ سريان'}
+          icon="calendar"
+          selected={!!policy.effectiveFrom}
+          onPress={() =>
+            dispatch(board.id, {
+              type: 'policy/update',
+              policyId: policy.id,
+              patch: { effectiveFrom: policy.effectiveFrom ? null : today },
+            })
+          }
+        />
+        {policy.effectiveFrom ? (
+          <>
+            <IconButton
+              name="chevron-right"
+              label="اليوم السابق"
+              onPress={() =>
+                dispatch(board.id, {
+                  type: 'policy/update',
+                  policyId: policy.id,
+                  patch: { effectiveFrom: addDays(policy.effectiveFrom!, -1) },
+                })
+              }
+            />
+            <IconButton
+              name="chevron-left"
+              label="اليوم التالي"
+              onPress={() =>
+                dispatch(board.id, {
+                  type: 'policy/update',
+                  policyId: policy.id,
+                  patch: { effectiveFrom: addDays(policy.effectiveFrom!, 1) },
+                })
+              }
+            />
+          </>
+        ) : null}
+      </View>
+
       <Pressable
         accessibilityRole="button"
         disabled={!text.trim() || text.trim() === policy.text}
@@ -696,6 +859,18 @@ const styles = StyleSheet.create({
   agendaTitle: { flex: 1, fontSize: 14 },
   agendaAdd: { flexDirection: 'row-reverse', alignItems: 'center', gap: 6, marginTop: 8 },
   agendaInput: { flex: 1, fontSize: 14 },
+  topicSheet: { maxHeight: 440, paddingHorizontal: 16, paddingBottom: 16 },
+  sub: { marginTop: 12, gap: 6 },
+  subHead: { flexDirection: 'row-reverse', alignItems: 'center', gap: 2 },
+  subTitle: { flex: 1, fontSize: 14, fontWeight: '700' },
+  subLoose: { fontSize: 13, fontWeight: '700', color: colors.textFaint },
+  clauses: { gap: 6, paddingStart: 8 },
+  clause: { padding: 10, borderRadius: 8, backgroundColor: colors.list, gap: 3 },
+  clauseText: { fontSize: 13.5, lineHeight: 24 },
+  clauseFrom: { fontSize: 10.5, color: colors.textFaint },
+  clauseAdd: { flexDirection: 'row-reverse', alignItems: 'center', gap: 6 },
+  clauseInput: { flex: 1, fontSize: 13 },
+  wrapChips: { flexDirection: 'row-reverse', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
   fromText: { flex: 1, fontSize: 10.5, color: colors.textFaint },
   addRow: {
     flexDirection: 'row-reverse',

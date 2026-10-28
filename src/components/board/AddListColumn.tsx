@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { Pressable, StyleSheet, type TextInput, View } from 'react-native';
 
 import { colors, LIST_GAP, LIST_WIDTH } from '../../lib/theme';
 import type { BoardColumnKind } from '../../shared/types';
@@ -24,6 +24,7 @@ export function AddListColumn({
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<'list' | BoardColumnKind>('list');
   const [text, setText] = useState('');
+  const inputRef = useRef<TextInput>(null);
 
   const submit = () => {
     const title = text.trim();
@@ -31,6 +32,8 @@ export function AddListColumn({
     if (kind === 'list') onAdd(title);
     else onAddColumn?.(title, kind);
     setText('');
+    setOpen(false);
+    setKind('list');
   };
   const cancel = () => {
     setOpen(false);
@@ -60,7 +63,10 @@ export function AddListColumn({
               key={k.value}
               accessibilityRole="button"
               aria-selected={kind === k.value}
-              onPress={() => setKind(k.value)}
+              onPress={() => {
+                setKind(k.value);
+                inputRef.current?.focus();
+              }}
               style={({ pressed }) => [styles.kind, kind === k.value && styles.kindOn, pressed && styles.kindPressed]}
             >
               <Icon name={k.icon} size={14} color={kind === k.value ? colors.surface : colors.textSubtle} />
@@ -70,6 +76,7 @@ export function AddListColumn({
         </View>
       ) : null}
       <Input
+        ref={inputRef}
         autoFocus
         value={text}
         onChangeText={setText}
@@ -78,8 +85,8 @@ export function AddListColumn({
         submitBehavior="submit"
         returnKeyType="done"
         style={styles.input}
-        onBlur={() => {
-          if (!text.trim()) cancel();
+        onKeyPress={(e) => {
+          if (e.nativeEvent.key === 'Escape') cancel();
         }}
       />
       <View style={styles.row}>

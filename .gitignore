@@ -36,3 +36,6 @@ modules/*/android/build/
 
 # مخرج npm run seed:meetings — يُولَّد عند الطلب
 lawhati-meetings-seed*.json
+
+# مخرجات بناء Gradle للوحدة الأصلية — مولَّدة
+modules/*/android/.gradle/

@@ -184,20 +184,42 @@ export function describeWhat(what: ActivityWhat, n = 1, tasks = 1): string {
       return what.cards ? `حذف عمود ${q(what.column)} وما فيه (${what.cards})` : `حذف عمود ${q(what.column)}`;
     case 'meeting/file':
       return what.column ? `نقل اجتماع ${q(what.meeting)} إلى ${q(what.column)}` : `إخراج اجتماع ${q(what.meeting)} من عموده`;
+    case 'policyTopic/add':
+      return `إضافة موضوع سياسات ${q(what.topic)}`;
+    case 'policyTopic/title':
+      return `تغيير موضوع ${q(what.from)} إلى ${q(what.topic)}`;
+    case 'policyTopic/move':
+      return `ترتيب موضوع ${q(what.topic)}`;
+    case 'policyTopic/remove':
+      if (what.movedTo) return `حذف موضوع ${q(what.topic)}، ونقل بنوده إلى ${q(what.movedTo)}`;
+      return what.clauses ? `حذف موضوع ${q(what.topic)} وبنوده (${what.clauses})` : `حذف موضوع ${q(what.topic)}`;
+    case 'subtopic/add':
+      return `إضافة موضوع فرعي ${q(what.subtopic)} تحت ${q(what.topic)}`;
+    case 'subtopic/title':
+      return `تغيير الموضوع الفرعي ${q(what.from)} إلى ${q(what.subtopic)}`;
+    case 'subtopic/move':
+      return `ترتيب الموضوع الفرعي ${q(what.subtopic)}`;
+    case 'subtopic/remove':
+      return what.clauses
+        ? `حذف الموضوع الفرعي ${q(what.subtopic)}، وبقاء ${what.clauses} من بنوده بلا موضوع فرعي`
+        : `حذف الموضوع الفرعي ${q(what.subtopic)}`;
+    case 'policy/effective':
+      return what.from ? `تحديد سريان بند ${q(what.policy)} من ${formatShortDate(what.from)}` : `إزالة تاريخ سريان ${q(what.policy)}`;
     case 'policy/add':
-      return what.column ? `إضافة سياسة ${q(what.policy)} إلى ${q(what.column)}` : `إضافة سياسة ${q(what.policy)}`;
+      return what.column ? `إضافة بند ${q(what.policy)} إلى ${q(what.column)}` : `إضافة بند ${q(what.policy)}`;
     case 'policy/text':
-      return `تعديل سياسة ${q(what.from)} إلى ${q(what.policy)}`;
+      return `تعديل بند ${q(what.from)} إلى ${q(what.policy)}`;
     case 'policy/file':
-      return what.column ? `نقل سياسة ${q(what.policy)} إلى ${q(what.column)}` : `إخراج سياسة ${q(what.policy)} من عمودها`;
+      if (what.subtopic) return `نقل بند ${q(what.policy)} إلى ${q(what.subtopic)}`;
+      return what.topic ? `نقل بند ${q(what.policy)} إلى ${q(what.topic)}` : `إخراج بند ${q(what.policy)} من موضعه`;
     case 'policy/move':
-      return `ترتيب سياسة ${q(what.policy)}`;
+      return `ترتيب بند ${q(what.policy)}`;
     case 'policy/repeal':
-      return `إلغاء العمل بسياسة ${q(what.policy)}`;
+      return `إلغاء العمل ببند ${q(what.policy)}`;
     case 'policy/restore':
-      return `إعادة العمل بسياسة ${q(what.policy)}`;
+      return `إعادة العمل ببند ${q(what.policy)}`;
     case 'policy/remove':
-      return `حذف سياسة ${q(what.policy)}`;
+      return `حذف بند ${q(what.policy)}`;
     case 'outcome/policy':
       return what.added
         ? `إقرار ${q(what.text)} سياسةً من ${q(what.meeting)}`

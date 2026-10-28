@@ -11,11 +11,12 @@ import {
   outcomeField,
   POLICY_FIELDS,
   policyField,
+  POLICY_TOPIC_FIELDS,
   record,
   same,
   TOPIC_FIELDS,
 } from './activity';
-import type { Board, Card, List, Meeting, MeetingTopic, Op, Policy, PolicyEvent } from './types';
+import type { Board, Card, List, Meeting, MeetingTopic, Op, Policy, PolicyEvent, PolicyTopic } from './types';
 
 // Pure, deterministic board reducer. The app applies operations optimistically and
 // the sync server applies the same operations in its own order, so both must agree.
@@ -68,6 +69,17 @@ function updateCard(board: Board, cardId: string, fn: (card: Card) => Card): Boa
 /** A policy with one more line in its record. */
 function noted(policy: Policy, event: PolicyEvent): Policy {
   return { ...policy, history: [...(policy.history ?? []), event] };
+}
+
+function updatePolicyTopic(board: Board, topicId: string, fn: (topic: PolicyTopic) => PolicyTopic): Board {
+  const topics = board.policyTopics ?? [];
+  const index = topics.findIndex((t) => t.id === topicId);
+  if (index < 0) return board;
+  const next = fn(topics[index]);
+  if (next === topics[index]) return board;
+  const copy = topics.slice();
+  copy[index] = next;
+  return { ...board, policyTopics: copy };
 }
 
 function updateMeeting(board: Board, meetingId: string, fn: (meeting: Meeting) => Meeting): Board {
@@ -399,11 +411,108 @@ function reduce(board: Board, op: Op): Board {
           ? (board.meetings ?? []).map((m) => (mine(m) ? { ...m, columnId: moveTo } : m))
           : (board.meetings ?? []).filter((m) => !mine(m));
       } else {
-        next.policies = moveTo
-          ? (board.policies ?? []).map((x) => (mine(x) ? { ...x, columnId: moveTo } : x))
-          : (board.policies ?? []).filter((x) => !mine(x));
+        // A policies column holds topics, and the rules hang off those. Moving the column's
+        // topics carries every rule under them without touching a single rule.
+        next.policyTopics = moveTo
+          ? (board.policyTopics ?? []).map((t) => (mine(t) ? { ...t, columnId: moveTo } : t))
+          : (board.policyTopics ?? []).filter((t) => !mine(t));
+        if (!moveTo) {
+          const gone = new Set((board.policyTopics ?? []).filter(mine).map((t) => t.id));
+          next.policies = (board.policies ?? []).filter((x) => !gone.has(x.topicId ?? ''));
+        }
       }
       return next;
+    }
+
+    case 'topic/addPolicy': {
+      const topics = board.policyTopics ?? [];
+      if (topics.some((t) => t.id === op.topic.id)) return board;
+      return { ...board, policyTopics: insertAt(topics, op.index ?? topics.length, op.topic) };
+    }
+
+    case 'topic/updatePolicy': {
+      const topics = board.policyTopics ?? [];
+      const index = topics.findIndex((t) => t.id === op.topicId);
+      if (index < 0) return board;
+      const patch = pick(op.patch, POLICY_TOPIC_FIELDS);
+      const keys = Object.keys(patch) as (keyof typeof patch)[];
+      if (keys.every((key) => same(patch[key], key === 'columnId' ? (topics[index].columnId ?? null) : topics[index][key])))
+        return board;
+      const next = topics.slice();
+      next[index] = { ...next[index], ...patch };
+      return { ...board, policyTopics: next };
+    }
+
+    case 'topic/movePolicy': {
+      const topics = board.policyTopics ?? [];
+      const from = topics.findIndex((t) => t.id === op.topicId);
+      if (from < 0) return board;
+      const to = clampIndex(op.toIndex, topics.length - 1);
+      if (from === to) return board;
+      const next = topics.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return { ...board, policyTopics: next };
+    }
+
+    case 'topic/removePolicy': {
+      const topics = board.policyTopics ?? [];
+      if (!topics.some((t) => t.id === op.topicId)) return board;
+      const rest = topics.filter((t) => t.id !== op.topicId);
+      const moveTo = op.moveTo && rest.some((t) => t.id === op.moveTo) ? op.moveTo : null;
+      const mine = (p: Policy) => (p.topicId ?? null) === op.topicId;
+      return {
+        ...board,
+        policyTopics: rest,
+        // A rule's topic is its home. Moving it keeps it; without a destination it goes with the
+        // topic, and its sub-heading is dropped because that heading no longer exists.
+        policies: moveTo
+          ? (board.policies ?? []).map((p) => (mine(p) ? { ...p, topicId: moveTo, subtopicId: null } : p))
+          : (board.policies ?? []).filter((p) => !mine(p)),
+      };
+    }
+
+    case 'subtopic/add':
+      return updatePolicyTopic(board, op.topicId, (topic) =>
+        topic.subtopics.some((x) => x.id === op.subtopic.id)
+          ? topic
+          : { ...topic, subtopics: insertAt(topic.subtopics, op.index ?? topic.subtopics.length, op.subtopic) },
+      );
+
+    case 'subtopic/update':
+      return updatePolicyTopic(board, op.topicId, (topic) => {
+        const index = topic.subtopics.findIndex((x) => x.id === op.subtopicId);
+        if (index < 0 || op.patch.title === undefined || topic.subtopics[index].title === op.patch.title) return topic;
+        const subtopics = topic.subtopics.slice();
+        subtopics[index] = { ...subtopics[index], title: op.patch.title };
+        return { ...topic, subtopics };
+      });
+
+    case 'subtopic/move':
+      return updatePolicyTopic(board, op.topicId, (topic) => {
+        const from = topic.subtopics.findIndex((x) => x.id === op.subtopicId);
+        if (from < 0) return topic;
+        const to = clampIndex(op.toIndex, topic.subtopics.length - 1);
+        if (from === to) return topic;
+        const subtopics = topic.subtopics.slice();
+        const [moved] = subtopics.splice(from, 1);
+        subtopics.splice(to, 0, moved);
+        return { ...topic, subtopics };
+      });
+
+    case 'subtopic/remove': {
+      const next = updatePolicyTopic(board, op.topicId, (topic) =>
+        topic.subtopics.some((x) => x.id === op.subtopicId)
+          ? { ...topic, subtopics: topic.subtopics.filter((x) => x.id !== op.subtopicId) }
+          : topic,
+      );
+      if (next === board) return board;
+      // The rules stay where they are, under no sub-heading. A heading is a way of reading them,
+      // not a thing they belong to.
+      return {
+        ...next,
+        policies: (next.policies ?? []).map((p) => (p.subtopicId === op.subtopicId ? { ...p, subtopicId: null } : p)),
+      };
     }
 
     case 'policy/add': {

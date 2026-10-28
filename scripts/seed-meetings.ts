@@ -229,12 +229,19 @@ const slug = (prefix: string, n: number) => `seed-${prefix}${n}`;
 
 const agenda = SUBJECTS.map((title, i) => ({ id: slug('s', i + 1), title }));
 // One meetings column, then a column per policies heading.
+// One meetings column and one policies column; each heading becomes a subject inside it.
 const columns: BoardColumn[] = [
   { id: slug('k', 1), title: 'الاجتماعات', kind: 'meetings' },
-  ...SECTIONS.map((title, i) => ({ id: slug('c', i + 1), title, kind: 'policies' as const })),
+  { id: slug('k', 2), title: 'السياسات', kind: 'policies' },
 ];
+const policyTopics = SECTIONS.map((title, i) => ({
+  id: slug('c', i + 1),
+  title,
+  columnId: slug('k', 2),
+  subtopics: [],
+}));
 const subjectId = (title: string) => agenda.find((a) => a.title === title)?.id ?? null;
-const columnId = (title: string) => columns.find((c) => c.title === title)?.id ?? null;
+const topicId = (title: string) => policyTopics.find((t) => t.title === title)?.id ?? null;
 
 const meetings: Meeting[] = [];
 const policies: Policy[] = [];
@@ -272,7 +279,9 @@ SESSIONS.forEach((session, si) => {
       policies.push({
         id: policyId,
         text: d.text,
-        columnId: d.section ? columnId(d.section) : null,
+        topicId: d.section ? topicId(d.section) : null,
+        subtopicId: null,
+        effectiveFrom: session.date,
         meetingId,
         at: at(session.date),
       });
@@ -319,6 +328,7 @@ const board: Board = {
   agenda,
   meetings,
   policies,
+  policyTopics,
   columns,
 };
 

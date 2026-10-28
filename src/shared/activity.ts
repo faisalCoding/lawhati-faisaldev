@@ -46,7 +46,8 @@ export const OUTCOME_FIELDS = [
   'policyId',
   'done',
 ] as const;
-export const POLICY_FIELDS = ['text', 'columnId', 'meetingId'] as const;
+export const POLICY_TOPIC_FIELDS = ['title', 'columnId'] as const;
+export const POLICY_FIELDS = ['text', 'topicId', 'subtopicId', 'effectiveFrom', 'meetingId'] as const;
 
 type BoardField = (typeof BOARD_FIELDS)[number];
 type CardField = (typeof CARD_FIELDS)[number];
@@ -99,8 +100,12 @@ export function outcomeField(outcome: Outcome, key: OutcomeField): unknown {
 /** A policy's field as every version reads it: an unfiled rule and one with no meeting read null. */
 export function policyField(policy: Policy, key: PolicyField): unknown {
   switch (key) {
-    case 'columnId':
-      return policy.columnId ?? null;
+    case 'topicId':
+      return policy.topicId ?? null;
+    case 'subtopicId':
+      return policy.subtopicId ?? null;
+    case 'effectiveFrom':
+      return policy.effectiveFrom ?? null;
     case 'meetingId':
       return policy.meetingId ?? null;
     default:
@@ -302,22 +307,26 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
       const held =
         column.kind === 'meetings'
           ? (before.meetings ?? []).filter((m) => (m.columnId ?? null) === op.columnId).length
-          : (before.policies ?? []).filter((x) => (x.columnId ?? null) === op.columnId).length;
+          : (before.policyTopics ?? []).filter((t) => (t.columnId ?? null) === op.columnId).length;
       const moved = (after.columns ?? []).find((c) => c.id === op.moveTo);
       return { type: 'column/remove', column: column.title, cards: held, movedTo: moved?.title ?? null };
     }
     case 'policy/add': {
-      const column = (after.columns ?? []).find((c) => c.id === op.policy.columnId);
-      return { type: 'policy/add', policy: op.policy.text, column: column?.title ?? null };
+      const topic = (after.policyTopics ?? []).find((t) => t.id === op.policy.topicId);
+      return { type: 'policy/add', policy: op.policy.text, column: topic?.title ?? null };
     }
     case 'policy/update': {
       const was = (before.policies ?? []).find((x) => x.id === op.policyId);
       const now = (after.policies ?? []).find((x) => x.id === op.policyId);
       if (!was || !now) return null;
       if (was.text !== now.text) return { type: 'policy/text', policy: now.text, from: was.text };
-      if ((was.columnId ?? null) !== (now.columnId ?? null)) {
-        const column = (after.columns ?? []).find((c) => c.id === now.columnId);
-        return { type: 'policy/file', policy: now.text, column: column?.title ?? null };
+      if ((was.topicId ?? null) !== (now.topicId ?? null) || (was.subtopicId ?? null) !== (now.subtopicId ?? null)) {
+        const topic = (after.policyTopics ?? []).find((t) => t.id === now.topicId);
+        const subtopic = topic?.subtopics.find((x) => x.id === now.subtopicId);
+        return { type: 'policy/file', policy: now.text, topic: topic?.title ?? null, subtopic: subtopic?.title ?? null };
+      }
+      if ((was.effectiveFrom ?? null) !== (now.effectiveFrom ?? null)) {
+        return { type: 'policy/effective', policy: now.text, from: now.effectiveFrom ?? null };
       }
       return null;
     }
@@ -577,18 +586,92 @@ export function undoOf(before: Board, after: Board, op: Op): UndoStep[] {
           );
         }
       } else {
-        // With its index: a rule's place in the board is its order, and `policy/add` without one
+        // With its index: a topic's place in the board is its order, and the add without one
         // appends. Meetings need no index — they sort themselves by date on the way back in.
-        (before.policies ?? []).forEach((x, i) => {
-          if (!mine(x.columnId)) return;
+        (before.policyTopics ?? []).forEach((t, i) => {
+          if (!mine(t.columnId)) return;
           steps.push(
             op.moveTo
-              ? { op: { type: 'policy/update', policyId: x.id, patch: { columnId: column.id } } }
-              : { op: { type: 'policy/add', policy: x, index: i } },
+              ? { op: { type: 'topic/updatePolicy', topicId: t.id, patch: { columnId: column.id } } }
+              : { op: { type: 'topic/addPolicy', topic: t, index: i } },
           );
+          // Its rules went with it; they come back after it does.
+          if (op.moveTo) return;
+          (before.policies ?? []).forEach((x, j) => {
+            if ((x.topicId ?? null) === t.id) steps.push({ op: { type: 'policy/add', policy: x, index: j } });
+          });
         });
       }
       return steps;
+    }
+
+    case 'topic/addPolicy':
+      return [{ op: { type: 'topic/removePolicy', topicId: op.topic.id } }];
+    case 'topic/updatePolicy': {
+      const was = (before.policyTopics ?? []).find((t) => t.id === op.topicId);
+      const now = (after.policyTopics ?? []).find((t) => t.id === op.topicId);
+      const c =
+        was && now
+          ? changes(
+              POLICY_TOPIC_FIELDS,
+              op.patch,
+              (k) => (k === 'columnId' ? (was.columnId ?? null) : was[k]),
+              (k) => (k === 'columnId' ? (now.columnId ?? null) : now[k]),
+            )
+          : null;
+      return c ? [{ op: { type: 'topic/updatePolicy', topicId: op.topicId, patch: c.patch }, expect: c.expect }] : [];
+    }
+    case 'topic/movePolicy': {
+      const from = (before.policyTopics ?? []).findIndex((t) => t.id === op.topicId);
+      return from < 0 ? [] : [{ op: { type: 'topic/movePolicy', topicId: op.topicId, toIndex: from } }];
+    }
+    case 'topic/removePolicy': {
+      const topics = before.policyTopics ?? [];
+      const index = topics.findIndex((t) => t.id === op.topicId);
+      const topic = topics[index];
+      if (!topic) return [];
+      const steps: UndoStep[] = [{ op: { type: 'topic/addPolicy', topic, index } }];
+      (before.policies ?? []).forEach((p, i) => {
+        if ((p.topicId ?? null) !== op.topicId) return;
+        steps.push(
+          op.moveTo
+            ? { op: { type: 'policy/update', policyId: p.id, patch: { topicId: op.topicId, subtopicId: p.subtopicId ?? null } } }
+            : { op: { type: 'policy/add', policy: p, index: i } },
+        );
+      });
+      return steps;
+    }
+
+    case 'subtopic/add':
+      return [{ op: { type: 'subtopic/remove', topicId: op.topicId, subtopicId: op.subtopic.id } }];
+    case 'subtopic/update': {
+      const was = (before.policyTopics ?? []).find((t) => t.id === op.topicId)?.subtopics.find((x) => x.id === op.subtopicId);
+      return was && op.patch.title !== undefined && was.title !== op.patch.title
+        ? [
+            {
+              op: { type: 'subtopic/update', topicId: op.topicId, subtopicId: op.subtopicId, patch: { title: was.title } },
+              expect: { title: op.patch.title },
+            },
+          ]
+        : [];
+    }
+    case 'subtopic/move': {
+      const from =
+        (before.policyTopics ?? []).find((t) => t.id === op.topicId)?.subtopics.findIndex((x) => x.id === op.subtopicId) ??
+        -1;
+      return from < 0 ? [] : [{ op: { type: 'subtopic/move', topicId: op.topicId, subtopicId: op.subtopicId, toIndex: from } }];
+    }
+    case 'subtopic/remove': {
+      const topic = (before.policyTopics ?? []).find((t) => t.id === op.topicId);
+      const index = topic?.subtopics.findIndex((x) => x.id === op.subtopicId) ?? -1;
+      if (!topic || index < 0) return [];
+      // The heading comes back, and every rule that was under it goes back under it.
+      return [
+        { op: { type: 'subtopic/add', topicId: op.topicId, subtopic: topic.subtopics[index], index } },
+        ...(before.policies ?? [])
+          .filter((p) => p.subtopicId === op.subtopicId)
+          .map((p): UndoStep => ({ op: { type: 'policy/update', policyId: p.id, patch: { subtopicId: op.subtopicId } } })),
+      ];
     }
 
     case 'policy/add':
@@ -961,6 +1044,33 @@ export function stillApplies(board: Board, step: UndoStep): OpInput | null {
       const column = (board.columns ?? []).find((c) => c.id === op.columnId);
       return column && (!expect || same(column.title, expect.title)) ? op : null;
     }
+    case 'topic/addPolicy':
+      return (board.policyTopics ?? []).some((t) => t.id === op.topic.id) ? null : op;
+    case 'topic/movePolicy':
+    case 'topic/removePolicy':
+      return (board.policyTopics ?? []).some((t) => t.id === op.topicId) ? op : null;
+    case 'topic/updatePolicy': {
+      const topic = (board.policyTopics ?? []).find((t) => t.id === op.topicId);
+      const patch = topic
+        ? kept(op.patch, (k) => (k === 'columnId' ? (topic.columnId ?? null) : topic[k as 'title']))
+        : null;
+      return patch ? ({ ...op, patch } as OpInput) : null;
+    }
+    case 'subtopic/add':
+      return (board.policyTopics ?? []).find((t) => t.id === op.topicId) &&
+        !(board.policyTopics ?? []).find((t) => t.id === op.topicId)!.subtopics.some((x) => x.id === op.subtopic.id)
+        ? op
+        : null;
+    case 'subtopic/move':
+    case 'subtopic/remove':
+      return (board.policyTopics ?? []).find((t) => t.id === op.topicId)?.subtopics.some((x) => x.id === op.subtopicId)
+        ? op
+        : null;
+    case 'subtopic/update': {
+      const sub = (board.policyTopics ?? []).find((t) => t.id === op.topicId)?.subtopics.find((x) => x.id === op.subtopicId);
+      return sub && (!expect || same(sub.title, expect.title)) ? op : null;
+    }
+
     case 'policy/add':
       return (board.policies ?? []).some((x) => x.id === op.policy.id) ? null : op;
     case 'policy/move':
