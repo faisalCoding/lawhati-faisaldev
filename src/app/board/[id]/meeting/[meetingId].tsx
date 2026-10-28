@@ -22,7 +22,7 @@ import { ModalHeader } from '../../../../components/ui/Layout';
 import { ActionList, PromptForm, Sheet, type SheetAction } from '../../../../components/ui/Sheet';
 import { Input, Txt } from '../../../../components/ui/Txt';
 import { addDays, formatLongDate, todayISO } from '../../../../lib/dates';
-import { hasMoved, isHeld, movedProgress, needsMoving, stuckBefore } from '../../../../lib/meetings';
+import { hasMoved, isHeld, movedProgress, needsMoving } from '../../../../lib/meetings';
 import { uid } from '../../../../lib/ids';
 import { goBack } from '../../../../lib/nav';
 import { ordinal } from '../../../../lib/text';
@@ -86,8 +86,6 @@ export default function MeetingScreen() {
             {present || 'لم يُسجَّل أحد بعد'}
           </DocMeta>
           <DocRule />
-
-          <FollowUpSection board={board} meeting={meeting} />
 
           {meeting.topics.length === 0 && general.length === 0 ? (
             <DocNote>لم يُكتب في هذا المحضر شيء بعد.</DocNote>
@@ -435,41 +433,6 @@ function AddOutcome({
         autoFocus
       />
       <Button title="إضافة" onPress={add} disabled={!draft.trim()} />
-    </View>
-  );
-}
-
-/**
- * What earlier meetings left open — decided and never written down anywhere it would be acted on.
- *
- * It stands at the head of the minutes the way a meeting opens: before anything new, what is still
- * owed. A line goes to the meeting that decided it, because that is the document it belongs to.
- */
-function FollowUpSection({ board, meeting }: { board: Board; meeting: Meeting }) {
-  const groups = stuckBefore(board, meeting.id);
-  if (groups.length === 0) return null;
-
-  return (
-    <View>
-      <DocHeading title="متابعة ما سبق" note="ما تقرّر في اجتماعات سابقة ولم يُرحَّل بعد" />
-      {groups.map((group) => (
-        <View key={group.meeting.id}>
-          <Txt style={styles.followFrom}>
-            {group.meeting.title} · {formatLongDate(group.meeting.date)}
-          </Txt>
-          {group.items.map((item, i) => (
-            <DocClause
-              key={item.id}
-              marker={`${i + 1}.`}
-              text={item.text}
-              tone={{ label: 'لم تُرحَّل', done: false }}
-              meta={line(OUTCOME_NAMES[item.kind], item.assignee?.name, item.due && formatLongDate(item.due))}
-              onPress={() => router.push(`/board/${board.id}/meeting/${group.meeting.id}`)}
-            />
-          ))}
-        </View>
-      ))}
-      <DocRule />
     </View>
   );
 }
@@ -1342,5 +1305,4 @@ const styles = StyleSheet.create({
   formValue: { fontSize: 15, lineHeight: 26 },
   formHint: { fontSize: 12, color: colors.textFaint },
   formInput: { minHeight: 90, textAlignVertical: 'top' },
-  followFrom: { fontSize: 12, fontWeight: '700', color: colors.textSubtle, lineHeight: 24, marginTop: 8 },
 });
