@@ -10,37 +10,7 @@ import type { Card, ChecklistItem, Label, PowerUps } from '../../shared/types';
 import { CardFace, type TaskTargets, type ViewRef } from './CardFace';
 import { InsertGap } from './InsertGap';
 import { CARD_GAP, LONG_PRESS_MS, type BoardApi } from './boardApi';
-
-/** A part of the card a tap can land on, within `slop` pixels of it. */
-interface TapTarget {
-  ref: ViewRef | null;
-  slop: number;
-  run: () => void;
-}
-
-/** Runs the first of `targets` that (x, y), relative to `root`, lands on, or else `otherwise`. */
-function runTapTarget(targets: TapTarget[], root: ViewRef | null, x: number, y: number, otherwise: () => void) {
-  const live = targets.filter((t): t is TapTarget & { ref: ViewRef } => t.ref !== null);
-  if (!root || live.length === 0) return otherwise();
-  const hit = live.map(() => false);
-  let pending = live.length;
-  const settle = () => {
-    if (--pending > 0) return;
-    const i = hit.indexOf(true);
-    if (i >= 0) live[i].run();
-    else otherwise();
-  };
-  live.forEach((t, i) =>
-    t.ref.measureLayout(
-      root,
-      (left, top, width, height) => {
-        hit[i] = x >= left - t.slop && x <= left + width + t.slop && y >= top - t.slop && y <= top + height + t.slop;
-        settle();
-      },
-      settle,
-    ),
-  );
-}
+import { runTapTarget, type TapTarget } from './tapTargets';
 
 /**
  * A card on the board: tap to open it, tap its circle to mark it done, tap its tasks' arrow to list

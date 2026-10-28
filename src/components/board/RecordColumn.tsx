@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, View, type ScrollView as RNScrollView } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -11,7 +11,9 @@ import { pluralPolicies, pluralTopics } from '../../lib/text';
 import { colors, LIST_GAP, LIST_WIDTH } from '../../lib/theme';
 import type { Board, BoardColumn, BoardColumnKind, Meeting, Policy, PolicyEvent, PolicyTopic } from '../../shared/types';
 import { dispatch, startMeeting } from '../../store/actions';
+import type { ViewRef } from './CardFace';
 import { CARD_GAP, CARDS_PADDING_H, CARDS_PADDING_TOP, LONG_PRESS_MS, type BoardApi } from './boardApi';
+import { runTapTarget } from './tapTargets';
 import { Chip, Icon, IconButton } from '../ui/Buttons';
 import { EditableText } from '../ui/EditableText';
 import { ActionList, Sheet, type SheetAction } from '../ui/Sheet';
@@ -128,10 +130,6 @@ export function RecordColumn({
   };
 
   const movable = siblings.length > 0 || (column.kind === 'policies' && items.length > 1);
-  /** A press that was really the end of a drag opens nothing. */
-  const afterDrag = (run: () => void) => () => {
-    if (api.activeId.value === '') run();
-  };
 
   // The cards, with a gap where the record being dragged would land. A meetings column shows no
   // gap: the order in it is the dates', not the finger's, so the whole column lights up instead.
@@ -145,28 +143,18 @@ export function RecordColumn({
       <DraggableRecord
         key={item.id}
         api={api}
-        kind={column.kind}
-        itemId={item.id}
-        columnId={column.id}
+        board={board}
+        column={column}
+        item={item}
         hidden={dragged}
         movable={movable}
-      >
-        {column.kind === 'meetings' ? (
-          <MeetingCard
-            board={board}
-            meeting={item as Meeting}
-            onOpen={afterDrag(() => router.push(`/board/${board.id}/meeting/${item.id}`))}
-            onMove={siblings.length ? () => setMoving({ id: item.id, text: item.title }) : undefined}
-          />
-        ) : (
-          <TopicCard
-            board={board}
-            topic={item as PolicyTopic}
-            onOpen={afterDrag(() => setEditing(item as PolicyTopic))}
-            onMove={siblings.length ? () => setMoving({ id: item.id, text: item.title }) : undefined}
-          />
-        )}
-      </DraggableRecord>,
+        onOpen={
+          column.kind === 'meetings'
+            ? () => router.push(`/board/${board.id}/meeting/${item.id}`)
+            : () => setEditing(item as PolicyTopic)
+        }
+        onMove={siblings.length ? () => setMoving({ id: item.id, text: item.title }) : undefined}
+      />,
     );
     if (!dragged) shown++;
   }
@@ -348,56 +336,89 @@ function RemoveColumn({
  *
  * It is the task card's gesture — long-press, then drag — over a different body, and it ends
  * somewhere else: a meeting only changes column, because within one the date sets the order.
+ *
+ * The whole card is one button and the move control on it is a plain view, measured at the moment
+ * of the tap. That is how the task cards do it, and it is what keeps the web build from putting a
+ * button inside a button.
  */
 function DraggableRecord({
   api,
-  kind,
-  itemId,
-  columnId,
+  board,
+  column,
+  item,
   hidden,
   movable,
-  children,
+  onOpen,
+  onMove,
 }: {
   api: BoardApi;
-  kind: BoardColumnKind;
-  itemId: string;
-  columnId: string;
+  board: Board;
+  column: BoardColumn;
+  item: Meeting | PolicyTopic;
   /** Being dragged: it keeps the gesture and gives up its space. */
   hidden: boolean;
   /** False when there is nowhere it could go, so the long press is left to do nothing. */
   movable: boolean;
-  children: ReactNode;
+  onOpen: () => void;
+  /** The same move by a button, for a column too far to drag to and for assistive tech. */
+  onMove?: () => void;
 }) {
   const { activeId, tx, ty, startRecordDrag, moveRecordDrag, endRecordDrag, reportCard } = api;
+  const itemId = item.id;
+  const kind = column.kind;
+  const columnId = column.id;
+  const rootRef = useRef<ViewRef>(null);
+  const moveRef = useRef<ViewRef>(null);
 
-  // Only the drag is a gesture. The card underneath keeps its own press, so the button on it stays
-  // a button; what a press must not do is open a card that the same finger just dragged.
-  const gesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .enabled(movable)
-        .activateAfterLongPress(LONG_PRESS_MS)
-        .onStart((e) => {
-          'worklet';
-          if (activeId.value !== '') return;
-          activeId.set(itemId);
-          tx.set(0);
-          ty.set(0);
-          scheduleOnRN(startRecordDrag, kind, itemId, columnId, e.x, e.y);
-        })
-        .onUpdate((e) => {
-          'worklet';
-          if (activeId.value !== itemId) return;
-          tx.set(e.translationX);
-          ty.set(e.translationY);
-          scheduleOnRN(moveRecordDrag, e.translationX, e.translationY);
-        })
-        .onFinalize(() => {
-          'worklet';
-          if (activeId.value === itemId) scheduleOnRN(endRecordDrag);
-        }),
-    [activeId, tx, ty, startRecordDrag, moveRecordDrag, endRecordDrag, kind, itemId, columnId, movable],
+  const onTap = useCallback(
+    (x: number, y: number) => {
+      runTapTarget(
+        [{ ref: onMove ? moveRef.current : null, slop: 8, run: () => onMove?.() }],
+        rootRef.current,
+        x,
+        y,
+        onOpen,
+      );
+    },
+    [onMove, onOpen],
   );
+
+  const gesture = useMemo(() => {
+    // scheduleOnRN hands onTap to the tap itself, so the views it measures are read then and not
+    // while this gesture is being built — which the rule has no way to see through.
+    // eslint-disable-next-line react-hooks/refs
+    const tap = Gesture.Tap().onEnd((e, success) => {
+      'worklet';
+      // A tap that was really the end of a drag opens nothing.
+      if (success && activeId.value === '') scheduleOnRN(onTap, e.x, e.y);
+    });
+    // In Exclusive the tap waits for the drag to fail, and a drag that cannot start never does.
+    if (!movable) return tap;
+
+    const pan = Gesture.Pan()
+      .activateAfterLongPress(LONG_PRESS_MS)
+      .onStart((e) => {
+        'worklet';
+        if (activeId.value !== '') return;
+        activeId.set(itemId);
+        tx.set(0);
+        ty.set(0);
+        scheduleOnRN(startRecordDrag, kind, itemId, columnId, e.x, e.y);
+      })
+      .onUpdate((e) => {
+        'worklet';
+        if (activeId.value !== itemId) return;
+        tx.set(e.translationX);
+        ty.set(e.translationY);
+        scheduleOnRN(moveRecordDrag, e.translationX, e.translationY);
+      })
+      .onFinalize(() => {
+        'worklet';
+        if (activeId.value === itemId) scheduleOnRN(endRecordDrag);
+      });
+
+    return Gesture.Exclusive(pan, tap);
+  }, [activeId, tx, ty, startRecordDrag, moveRecordDrag, endRecordDrag, kind, itemId, columnId, movable, onTap]);
 
   return (
     <View
@@ -406,7 +427,23 @@ function DraggableRecord({
       style={[styles.recordWrap, hidden && styles.recordHidden]}
     >
       <GestureDetector gesture={gesture}>
-        <View collapsable={false}>{children}</View>
+        <View
+          ref={rootRef}
+          collapsable={false}
+          accessibilityRole="button"
+          accessibilityLabel={item.title}
+          accessibilityHint={movable ? 'اضغط لفتحه، أو اضغط مطوّلًا واسحبه لنقله' : undefined}
+          accessibilityActions={onMove ? [{ name: 'move', label: 'نقل إلى عمود آخر' }] : undefined}
+          onAccessibilityAction={(e) => {
+            if (e.nativeEvent.actionName === 'move') onMove?.();
+          }}
+        >
+          {kind === 'meetings' ? (
+            <MeetingCard board={board} meeting={item as Meeting} moveRef={onMove ? moveRef : undefined} />
+          ) : (
+            <TopicCard board={board} topic={item as PolicyTopic} moveRef={onMove ? moveRef : undefined} />
+          )}
+        </View>
       </GestureDetector>
     </View>
   );
@@ -422,26 +459,27 @@ export function RecordCardPreview({
   kind: BoardColumnKind;
   itemId: string;
 }) {
+  // It has to look like the card it was lifted from, down to the corner the move icon sits in.
+  const moveRef = useRef<ViewRef>(null);
+  const moving = (board.columns ?? []).filter((c) => c.kind === kind).length > 1 ? moveRef : undefined;
   if (kind === 'meetings') {
     const meeting = (board.meetings ?? []).find((m) => m.id === itemId);
-    return meeting ? <MeetingCard board={board} meeting={meeting} lifted /> : null;
+    return meeting ? <MeetingCard board={board} meeting={meeting} moveRef={moving} lifted /> : null;
   }
   const topic = (board.policyTopics ?? []).find((t) => t.id === itemId);
-  return topic ? <TopicCard board={board} topic={topic} lifted /> : null;
+  return topic ? <TopicCard board={board} topic={topic} moveRef={moving} lifted /> : null;
 }
 
 function MeetingCard({
   board,
   meeting,
-  onOpen,
-  onMove,
+  moveRef,
   lifted = false,
 }: {
   board: Board;
   meeting: Meeting;
-  onOpen?: () => void;
   /** Absent when there is nowhere else of this kind to move it to. */
-  onMove?: () => void;
+  moveRef?: RefObject<ViewRef | null>;
   /** Drawn under the finger rather than in its column. */
   lifted?: boolean;
 }) {
@@ -449,13 +487,7 @@ function MeetingCard({
   const { moved, total } = movedProgress(board, meeting);
 
   return (
-    <Pressable
-      onPress={onOpen}
-      disabled={lifted}
-      accessibilityRole="button"
-      accessibilityHint={onMove ? 'اضغط مطوّلًا واسحبه إلى عمود آخر' : undefined}
-      style={({ pressed }) => [styles.card, lifted && styles.lifted, pressed && styles.pressed]}
-    >
+    <View style={[styles.card, lifted && styles.lifted]}>
       <View style={styles.cardTop}>
         <Txt style={styles.cardTitle} numberOfLines={2}>
           {meeting.title}
@@ -473,7 +505,7 @@ function MeetingCard({
           {meeting.attendees.length ? ` · ${meeting.attendees.length} حضورًا` : ''}
         </Txt>
         {/* Visible, not a hidden long-press: everything else on this board is a thing you can see. */}
-        {onMove ? <IconButton name="move" label="نقل إلى عمود آخر" size={16} onPress={onMove} /> : null}
+        <MoveTarget moveRef={moveRef} />
       </View>
 
       {total > 0 ? (
@@ -492,31 +524,24 @@ function MeetingCard({
           </Txt>
         </View>
       ) : null}
-    </Pressable>
+    </View>
   );
 }
 
 function TopicCard({
   board,
   topic,
-  onOpen,
-  onMove,
+  moveRef,
   lifted = false,
 }: {
   board: Board;
   topic: PolicyTopic;
-  onOpen?: () => void;
-  onMove?: () => void;
+  moveRef?: RefObject<ViewRef | null>;
   lifted?: boolean;
 }) {
   const clauses = livingClauses(board, topic.id);
   return (
-    <Pressable
-      onPress={onOpen}
-      disabled={lifted}
-      accessibilityRole="button"
-      style={({ pressed }) => [styles.card, lifted && styles.lifted, pressed && styles.pressed]}
-    >
+    <View style={[styles.card, lifted && styles.lifted]}>
       <Txt style={styles.cardTitle} numberOfLines={2}>
         {topic.title}
       </Txt>
@@ -525,9 +550,22 @@ function TopicCard({
           {topic.subtopics.length ? `${topic.subtopics.length} موضوعًا فرعيًّا · ` : ''}
           {pluralPolicies(clauses.length)}
         </Txt>
-        {onMove ? <IconButton name="move" label="نقل إلى عمود آخر" size={16} onPress={onMove} /> : null}
+        <MoveTarget moveRef={moveRef} />
       </View>
-    </Pressable>
+    </View>
+  );
+}
+
+/**
+ * The move control drawn on a record card: a view, not a button, because the card around it is one.
+ * `DraggableRecord` measures it when a tap lands and runs the move itself.
+ */
+function MoveTarget({ moveRef }: { moveRef?: RefObject<ViewRef | null> }) {
+  if (!moveRef) return null;
+  return (
+    <View ref={moveRef} collapsable={false} style={styles.moveTarget}>
+      <Icon name="move" size={16} color={colors.textSubtle} />
+    </View>
   );
 }
 
@@ -983,6 +1021,8 @@ const styles = StyleSheet.create({
   },
   recordHidden: { height: 0, marginBottom: 0, opacity: 0, overflow: 'hidden' },
   placeholder: { borderRadius: 10, backgroundColor: colors.placeholder, marginBottom: CARD_GAP },
+  // The footprint the icon button it replaced had, so the card's foot keeps its height.
+  moveTarget: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   card: { padding: 10, borderRadius: 10, backgroundColor: colors.surface, gap: 5 },
   lifted: {
     shadowColor: '#091E42',
