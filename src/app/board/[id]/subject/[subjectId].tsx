@@ -113,7 +113,6 @@ function Visit({ board, visit }: { board: Board; visit: SubjectVisit }) {
                   {OUTCOME_NAMES[outcome.kind]}
                   {outcome.assignee ? ` · ${outcome.assignee.name}` : ''}
                   {outcome.due ? ` · ${formatLongDate(outcome.due)}` : ''}
-                  {stuck ? ' · لم تُرحَّل بعد' : ''}
                 </Txt>
               </View>
             </View>
