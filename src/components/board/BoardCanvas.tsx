@@ -723,7 +723,11 @@ export function BoardCanvas({
         scrollEnabled={!dragging}
         scrollEventThrottle={16}
         onScroll={(e) => {
-          if (!dragRef.current && !listDragRef.current) geoRef.current.scrollX = e.nativeEvent.contentOffset.x;
+          // While a drag auto-scrolls the board, its own scrollX is the live one: a scroll event
+          // reports where the view has got to, which lags behind, and would drag the target back.
+          if (!dragRef.current && !listDragRef.current && !recordDragRef.current) {
+            geoRef.current.scrollX = e.nativeEvent.contentOffset.x;
+          }
         }}
         onContentSizeChange={(w) => {
           geoRef.current.contentWidth = w;

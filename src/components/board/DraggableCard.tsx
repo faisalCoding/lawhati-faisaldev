@@ -187,7 +187,10 @@ export const DraggableCard = memo(function DraggableCard({
       onLayout={(e) => reportCard(cardId, e.nativeEvent.layout)}
       style={[styles.wrap, hidden && styles.hidden]}
     >
-      <GestureDetector gesture={gesture}>
+      {/* Without this the detector sets touch-action: none, and a finger landing on a card —
+      most of the board — stops the browser scrolling the board under it. The drag only
+      starts after a long press, so the two never want the same touch. */}
+      <GestureDetector gesture={gesture} touchAction="manipulation">
         <View
           collapsable={false}
           accessibilityRole={selecting ? 'checkbox' : 'button'}

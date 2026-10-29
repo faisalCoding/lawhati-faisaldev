@@ -247,7 +247,10 @@ export const Column = memo(function Column({
       <View style={styles.header}>
         {/* Measured from outside the GestureDetector: on the web it adds a wrapper element. */}
         <View style={styles.grabArea} onLayout={(e) => api.reportGrabArea(listId, e.nativeEvent.layout)}>
-          <GestureDetector gesture={headerGesture}>
+          {/* Without this the detector sets touch-action: none, and a finger landing on the
+          title stops the browser scrolling the board under it. The list only lifts after a
+          long press, so the two never want the same touch. */}
+          <GestureDetector gesture={headerGesture} touchAction="manipulation">
             <View
               collapsable={false}
               accessibilityRole="button"
