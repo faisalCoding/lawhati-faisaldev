@@ -2,11 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSyncExternalStore } from 'react';
 
 import type { Assignee } from '../shared/types';
-import { fetchTeam, MemberError, signInWithPassword, type Member } from './api';
+import { fetchTeam, MemberError, signInWithPassword, signUpWithPassword, type Member } from './api';
 
-// Who is using the app, as one of the company's employees, and the team cards can be assigned to.
-// An employee signs in on each device with the code the panel gives them. Signing in is optional:
-// boards work without it, but assigning people needs the team list, which the code unlocks.
+// Who is using the app, and the team cards can be assigned to. Each device signs in with the
+// account its owner has on the site, or makes one here and is signed in with it. Either is
+// optional: boards work without an account, but assigning people needs the team list.
 
 export interface MemberSession {
   /** The token the site minted for this device. Never shown to anyone. */
@@ -84,6 +84,24 @@ export function useMe(): Member | null {
 export async function signIn(email: string, password: string, deviceName: string): Promise<Member> {
   await loadMemberSession();
   const { token, me } = await signInWithPassword(email, password, deviceName);
+  await update({ ...session, token, me, expired: false });
+  refreshTeam(true);
+  return me;
+}
+
+/**
+ * Makes the account on the site and signs this device in with it, in one step. Throws a
+ * MemberError with `rejected` and the site's own sentence when it will not make it.
+ */
+export async function signUp(
+  name: string,
+  email: string,
+  password: string,
+  confirmation: string,
+  deviceName: string,
+): Promise<Member> {
+  await loadMemberSession();
+  const { token, me } = await signUpWithPassword(name, email, password, confirmation, deviceName);
   await update({ ...session, token, me, expired: false });
   refreshTeam(true);
   return me;
