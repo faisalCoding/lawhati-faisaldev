@@ -1,5 +1,6 @@
+import * as Clipboard from 'expo-clipboard';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -22,7 +23,7 @@ import { ModalHeader } from '../../../../components/ui/Layout';
 import { ActionList, PromptForm, Sheet, type SheetAction } from '../../../../components/ui/Sheet';
 import { Input, Txt } from '../../../../components/ui/Txt';
 import { addDays, formatLongDate, todayISO } from '../../../../lib/dates';
-import { isHeld, movedProgress } from '../../../../lib/meetings';
+import { isHeld, meetingSummary, movedProgress } from '../../../../lib/meetings';
 import { uid } from '../../../../lib/ids';
 import { goBack } from '../../../../lib/nav';
 import { ordinal } from '../../../../lib/text';
@@ -226,10 +227,17 @@ function MeetingSheet({
   );
 }
 
-/** When it was, where, whether it happened at all — and the one way to delete it. */
+/** When it was, where, whether it happened at all, the minutes to send on — and the one way to delete it. */
 function MeetingForm({ board, meeting, onDone }: { board: Board; meeting: Meeting; onDone: () => void }) {
   const today = todayISO();
   const held = isHeld(meeting);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1800);
+    return () => clearTimeout(t);
+  }, [copied]);
   const update = (patch: Partial<Pick<Meeting, 'title' | 'date' | 'place' | 'held'>>) =>
     dispatch(board.id, { type: 'meeting/update', meetingId: meeting.id, patch });
 
@@ -274,6 +282,16 @@ function MeetingForm({ board, meeting, onDone }: { board: Board; meeting: Meetin
         onCommit={(place) => update({ place })}
         placeholder="قاعة الاجتماعات، أو رابط اللقاء"
         style={styles.formValue}
+      />
+
+      <Button
+        title={copied ? 'نُسخ الملخّص' : 'نسخ ملخّص الاجتماع'}
+        icon={copied ? 'check' : 'copy'}
+        variant="secondary"
+        onPress={async () => {
+          await Clipboard.setStringAsync(meetingSummary(meeting));
+          setCopied(true);
+        }}
       />
 
       <Button

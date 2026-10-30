@@ -1,4 +1,5 @@
-import { todayISO } from './dates';
+import { formatLongDate, todayISO } from './dates';
+import { ordinal } from './text';
 import type { Board, BoardColumn, Meeting, Outcome, Policy } from '../shared/types';
 
 // What a meeting decided and never moved on, and is therefore owed an answer at the next one.
@@ -105,4 +106,56 @@ export function stuckBefore(board: Board, meetingId: string): StuckInMeeting[] {
     .slice(index + 1)
     .map((meeting) => ({ meeting, items: (meeting.outcomes ?? []).filter((o) => !hasMoved(o, board)) }))
     .filter((group) => group.items.length > 0);
+}
+
+/**
+ * The meeting as text to paste where people already talk: when and where, who came, what was
+ * discussed and decided — then the two things everyone goes back for afterwards, who owes what by
+ * when, and which rules the meeting added.
+ *
+ * Plain text, no markup. It lands in a chat, an email, a notes app, and `*bold*` reads as stars in
+ * all but the first. A section with nothing in it is left out rather than printed empty, so a
+ * short meeting makes a short message.
+ */
+export function meetingSummary(meeting: Meeting): string {
+  const outcomes = meeting.outcomes ?? [];
+  const topicIds = new Set(meeting.topics.map((t) => t.id));
+  // A decision whose topic was deleted falls back to the meeting as a whole, as on the screen.
+  const general = outcomes.filter((o) => !o.topicId || !topicIds.has(o.topicId));
+  const numbered = (list: Outcome[]) => list.map((o, i) => `${i + 1}. ${o.text}`);
+
+  const head = [`محضر اجتماع: ${meeting.title}`, `التاريخ: ${formatLongDate(meeting.date)}`];
+  if (meeting.place?.trim()) head.push(`المكان: ${meeting.place.trim()}`);
+  if (meeting.attendees.length > 0) head.push(`الحضور: ${meeting.attendees.map((a) => a.name).join('، ')}`);
+
+  const sections: string[][] = [head];
+
+  if (meeting.topics.length > 0) {
+    sections.push([
+      'المحاور',
+      ...meeting.topics.flatMap((topic, i) => [
+        `${ordinal(i + 1)}: ${topic.title}`,
+        ...numbered(outcomes.filter((o) => o.topicId === topic.id)),
+      ]),
+    ]);
+  }
+  if (general.length > 0) sections.push(['توصيات عامّة', ...numbered(general)]);
+
+  // Who holds what: a task by a date, a standing responsibility with none. Both answer «who?».
+  const owed = outcomes.filter((o) => o.kind === 'task' || o.kind === 'assignment');
+  if (owed.length > 0) {
+    const both = owed.some((o) => o.kind === 'assignment') && owed.some((o) => o.kind === 'task');
+    const title = both ? 'المهام والمسؤوليات' : owed[0].kind === 'task' ? 'المهام' : 'المسؤوليات';
+    sections.push([
+      title,
+      ...owed.map((o) =>
+        ['- ' + o.text, o.assignee?.name, o.due ? formatLongDate(o.due) : null].filter(Boolean).join(' — '),
+      ),
+    ]);
+  }
+
+  const rules = outcomes.filter((o) => o.kind === 'policy');
+  if (rules.length > 0) sections.push(['السياسات المضافة', ...rules.map((o) => `- ${o.text}`)]);
+
+  return sections.map((lines) => lines.join('\n')).join('\n\n');
 }

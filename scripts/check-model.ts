@@ -3,7 +3,7 @@
 // project has no test runner, and this needs none — `npm run check:model`, plain assertions, no
 // framework to keep working.
 
-import { hasMoved, isHeld, movedProgress, needsMoving, stuckBefore } from '../src/lib/meetings';
+import { hasMoved, isHeld, meetingSummary, movedProgress, needsMoving, stuckBefore } from '../src/lib/meetings';
 import { subjectHistory } from '../src/lib/subjects';
 import { stillApplies, undoOf } from '../src/shared/activity';
 import { applyOp } from '../src/shared/reducer';
@@ -651,6 +651,46 @@ roundTrip(
   op({ type: 'check/add', cardId: 'K', item: { id: 'u', text: 'م', done: false, due: '2026-08-08' } }),
   'إضافة مهمة بموعد',
 );
+
+// ── ملخّص الاجتماع للنسخ ────────────────────────────────────────────────────
+const fullMeeting = m({
+  title: 'اجتماع الأحد',
+  date: '2026-10-25',
+  place: 'قاعة الحلقات',
+  attendees: [{ id: '1', name: 'فيصل' }, { id: '2', name: 'عزام' }],
+  topics: [
+    { id: 'T1', title: 'سير الحلقات', notes: 'نقاش طويل لا يدخل الملخّص' },
+    { id: 'T2', title: 'الرحلة', notes: '' },
+  ],
+  outcomes: [
+    open({ id: 'o1', kind: 'task', text: 'حجز الحافلة', topicId: 'T2', assignee: { id: '2', name: 'عزام' }, due: '2026-10-27' }),
+    open({ id: 'o2', kind: 'assignment', text: 'يتولّى الطباعة', topicId: 'T1', assignee: { id: '1', name: 'فيصل' } }),
+    open({ id: 'o3', kind: 'policy', text: 'يُعوَّض التأخّر في الأسبوع نفسه', topicId: null }),
+    open({ id: 'o4', kind: 'note', text: 'محوره حُذف', topicId: 'محذوف' }),
+  ],
+});
+const summary = meetingSummary(fullMeeting);
+const sectionsOf = (text: string) => text.split('\n\n').map((block) => block.split('\n'));
+const blocks = sectionsOf(summary);
+
+ok('يبدأ بالعنوان', summary.startsWith('محضر اجتماع: اجتماع الأحد'));
+ok('والتاريخ بالكلمات', summary.includes('التاريخ: الأحد 25 أكتوبر 2026'));
+ok('والمكان', summary.includes('المكان: قاعة الحلقات'));
+ok('والحضور بأسمائهم', summary.includes('الحضور: فيصل، عزام'));
+ok('المحاور بترتيبها وأرقامها الترتيبية', summary.includes('أولًا: سير الحلقات') && summary.indexOf('أولًا') < summary.indexOf('ثانيًا: الرحلة'));
+ok('وتوصيات كلّ محور تحته', /ثانيًا: الرحلة\n1\. حجز الحافلة/.test(summary));
+ok('ونقاش المحور لا يدخل الملخّص', !summary.includes('نقاش طويل'));
+ok('والتوصية العامّة في قسمها', blocks.some((b) => b[0] === 'توصيات عامّة' && b.includes('1. يُعوَّض التأخّر في الأسبوع نفسه')));
+ok('وما حُذف محوره ينتقل إلى العامّة لا يختفي', blocks.some((b) => b[0] === 'توصيات عامّة' && b.includes('2. محوره حُذف')));
+ok('المهمة بمسؤولها وموعدها', summary.includes('- حجز الحافلة — عزام — الثلاثاء 27 أكتوبر 2026'));
+ok('والمسؤولية بصاحبها وبلا موعد', summary.includes('- يتولّى الطباعة — فيصل') && !summary.includes('يتولّى الطباعة — فيصل —'));
+ok('والقسم يُسمّى بما فيه', blocks.some((b) => b[0] === 'المهام والمسؤوليات'));
+ok('والسياسات المضافة في قسمها', blocks.some((b) => b[0] === 'السياسات المضافة' && b.includes('- يُعوَّض التأخّر في الأسبوع نفسه')));
+
+const bare = meetingSummary(m({ title: 'لقاء قصير', date: '2026-10-25' }));
+ok('اجتماع فارغ: سطران فقط', bare === 'محضر اجتماع: لقاء قصير\nالتاريخ: الأحد 25 أكتوبر 2026');
+ok('بلا مهام: لا قسم مهام', !meetingSummary(m({ outcomes: [open({ kind: 'note', text: 'خلاصة' })] })).includes('المهام'));
+ok('مهام وحدها: «المهام»', sectionsOf(meetingSummary(m({ outcomes: [open({ kind: 'task' })] }))).some((b) => b[0] === 'المهام'));
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);
