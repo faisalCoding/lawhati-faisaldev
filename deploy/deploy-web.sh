@@ -11,10 +11,21 @@ set -euo pipefail
 
 : "${SSH_TARGET:?Set SSH_TARGET, for example root@72.61.207.108}"
 APP_URL="${APP_URL:-https://faisaldev.site}"
+# The sync address is baked into the bundle at build time. Without it the app falls back to
+# ws://<host>:8787 — a plain-ws address an https page is not allowed to open at all, so sharing a
+# board fails with nothing listening and nothing to see. Derived from APP_URL so the published app
+# and the server it talks to cannot drift apart; Apache proxies this path to the sync service.
+SYNC_URL="${SYNC_URL:-wss://${APP_URL#*://}/lawhati-sync/}"
 cd "$(dirname "$0")/.."
 
-echo "› Building the web version"
-npm run build:web --silent
+echo "› Building the web version for $SYNC_URL"
+EXPO_PUBLIC_SYNC_URL="$SYNC_URL" npm run build:web --silent
+
+# It has been built without it once, and the app looked fine until someone tried to share a board.
+if ! grep -rq 'lawhati-sync' dist-web/_expo/static/js/web/; then
+  echo "The build does not carry $SYNC_URL; it would fall back to ws://host:8787." >&2
+  exit 1
+fi
 
 echo "› Uploading to $SSH_TARGET"
 WORK="$(mktemp -d)"
@@ -73,5 +84,13 @@ for path in /apps/lawhati/login /apps/lawhati/signup; do
   if [ "$code" = "200" ]; then echo "  $path: ok"; else echo "  $path: got $code — the app may be shadowing it" >&2; exit 1; fi
 done
 REMOTE
+
+# Published, but sharing a board needs the sync service too — it is deployed by deploy.sh, not
+# this script, so say which of the two is down rather than failing the web deploy over it.
+if [ "$(curl -sS -m 10 -o /dev/null -w '%{http_code}' "$APP_URL/lawhati-sync/health" || true)" = "200" ]; then
+  echo "  sync: ok"
+else
+  echo "  sync: $APP_URL/lawhati-sync/health is not answering — run deploy/deploy.sh" >&2
+fi
 
 echo "✓ Published at $APP_URL/lawhati-app/"
