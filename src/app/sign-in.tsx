@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 
@@ -29,14 +29,22 @@ type Mode = 'in' | 'up';
  */
 export default function SignInScreen() {
   const { expired } = useMemberSession();
-  const [mode, setMode] = useState<Mode>('in');
+  // An invitation sends people here before it can let them in: which form to open with, the
+  // address if one is already known, and where they were going.
+  const params = useLocalSearchParams<{ mode?: string; email?: string; next?: string }>();
+  const [mode, setMode] = useState<Mode>(params.mode === 'up' ? 'up' : 'in');
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(params.email ?? '');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [welcome, setWelcome] = useState<Member | null>(null);
+
+  // Somewhere inside the app, never an address off it: this screen is reachable by URL on the
+  // web, and `next` would otherwise send whoever signs in wherever the link said.
+  const next = params.next && params.next.startsWith('/') && !params.next.startsWith('//') ? params.next : null;
 
   const newAccount = mode === 'up';
   const ready =
@@ -44,9 +52,10 @@ export default function SignInScreen() {
     password.length > 0 &&
     (!newAccount || (name.trim().length > 0 && confirmation.length > 0));
 
-  const switchTo = (next: Mode) => {
-    setMode(next);
+  const switchTo = (to: Mode) => {
+    setMode(to);
     setError(null);
+    setNotice(null);
   };
 
   const typed = (set: (value: string) => void) => (text: string) => {
@@ -58,14 +67,27 @@ export default function SignInScreen() {
     if (!ready || busy) return;
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
-      setWelcome(
-        newAccount
-          ? await signUp(name, email, password, confirmation, deviceName())
-          : await signIn(email, password, deviceName()),
-      );
+      const me = newAccount
+        ? await signUp(name, email, password, confirmation, deviceName())
+        : await signIn(email, password, deviceName());
+      // Sent here on the way to somewhere — a board someone shared — so carry on to it rather
+      // than stopping to say hello.
+      if (next) router.replace(next);
+      else setWelcome(me);
     } catch (e) {
       const reason = e instanceof MemberError ? e.reason : 'offline';
+      // Already has an account: not something to correct, something to do instead. The form
+      // becomes the sign-in form, keeping the address they just typed.
+      if (reason === 'taken') {
+        setMode('in');
+        setPassword('');
+        setConfirmation('');
+        setNotice(e instanceof Error && e.message ? e.message : 'لهذا البريد حساب بالفعل. ادخل به.');
+        setBusy(false);
+        return;
+      }
       setError(
         // The site's own sentence when it would not make the account: only it knows which of its
         // rules was broken — the address is taken, the password is too short for its policy, the
@@ -117,7 +139,8 @@ export default function SignInScreen() {
             <Chip label="دخول" selected={!newAccount} onPress={() => switchTo('in')} />
             <Chip label="حساب جديد" selected={newAccount} onPress={() => switchTo('up')} />
           </View>
-          {expired ? <Txt style={styles.notice}>انتهت جلستك. ادخل مرة أخرى.</Txt> : null}
+          {notice ? <Txt style={styles.notice}>{notice}</Txt> : null}
+          {expired && !notice ? <Txt style={styles.notice}>انتهت جلستك. ادخل مرة أخرى.</Txt> : null}
           <Txt style={styles.lead}>
             {newAccount
               ? `حساب جديد على ${SITE}، يُصنع من هنا وتدخل به في الحال.`

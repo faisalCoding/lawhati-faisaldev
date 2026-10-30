@@ -57,7 +57,7 @@ export default function HomeScreen() {
           <View style={styles.actions}>
             <Button title="لوحة جديدة" icon="plus" onPress={() => router.push('/new-board')} style={styles.flex} />
             <Button
-              title="انضمام برمز"
+              title="انضمام بدعوة"
               icon="join"
               variant="secondary"
               onPress={() => router.push('/join')}
@@ -75,7 +75,7 @@ export default function HomeScreen() {
                 <Icon name="kanban" size={36} color={colors.primary} />
               </View>
               <Txt style={styles.emptyTitle}>لا توجد لوحات بعد</Txt>
-              <Txt style={styles.emptyText}>أنشئ لوحة من قالب جاهز، أو انضم إلى لوحة فريقك برمزها.</Txt>
+              <Txt style={styles.emptyText}>أنشئ لوحة من قالب جاهز، أو افتح رابط دعوة إلى لوحة فريقك.</Txt>
             </View>
           ) : (
             <View style={styles.grid}>
@@ -134,7 +134,7 @@ export default function HomeScreen() {
           <ConfirmForm
             message={
               menuFor.sync
-                ? 'ستُحذف اللوحة من هذا الجهاز، ويبقى بإمكانك الانضمام إليها مجددًا برمزها.'
+                ? 'ستُحذف اللوحة من هذا الجهاز، ويبقى بإمكانك الانضمام إليها مجددًا برابطها.'
                 : 'ستُحذف اللوحة وكل ما فيها نهائيًا.'
             }
             confirmLabel="حذف"

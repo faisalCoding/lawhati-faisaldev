@@ -14,6 +14,7 @@ import { ModalHeader, Section } from '../../../components/ui/Layout';
 import { ConfirmForm } from '../../../components/ui/Sheet';
 import { Txt } from '../../../components/ui/Txt';
 import { describeStep } from '../../../lib/buttonSteps';
+import { inviteLink } from '../../../lib/invite';
 import { goBack } from '../../../lib/nav';
 import { syncErrorMessage } from '../../../lib/syncErrors';
 import { BOARD_COLORS, colors } from '../../../lib/theme';
@@ -94,9 +95,9 @@ export default function BoardSettingsScreen() {
   const sendInvite = async () => {
     if (!code) return;
     try {
-      await Share.share({ message: `انضم إلى لوحة «${board.title}» في تطبيق لوحتي باستخدام الرمز: ${code}` });
+      await Share.share({ message: `انضم إلى لوحة «${board.title}» في «لوحتي»: ${inviteLink(code)}` });
     } catch {
-      await Clipboard.setStringAsync(code);
+      await Clipboard.setStringAsync(inviteLink(code));
       setCopied(true);
     }
   };
@@ -203,23 +204,23 @@ export default function BoardSettingsScreen() {
           {code ? (
             <View style={styles.card}>
               <Txt style={styles.muted}>
-                شارك هذا الرمز مع فريقك ليفتحوا اللوحة من «انضمام برمز». كل تعديل يظهر عند الجميع فورًا.
+                أرسل هذا الرابط لمن تشاركه اللوحة: يفتحه فينضمّ. كل تعديل يظهر عند الجميع فورًا.
               </Txt>
-              <Txt style={styles.code} selectable>
-                {code}
+              <Txt style={styles.invite} selectable>
+                {inviteLink(code)}
               </Txt>
               <View style={styles.row}>
                 <Button
-                  title={copied ? 'تم النسخ' : 'نسخ الرمز'}
+                  title={copied ? 'تم النسخ' : 'نسخ الرابط'}
                   icon={copied ? 'check' : 'copy'}
                   variant="secondary"
                   onPress={async () => {
-                    await Clipboard.setStringAsync(code);
+                    await Clipboard.setStringAsync(inviteLink(code));
                     setCopied(true);
                   }}
                   style={styles.flex}
                 />
-                <Button title="إرسال دعوة" icon="share" onPress={sendInvite} style={styles.flex} />
+                <Button title="إرسال الرابط" icon="share" onPress={sendInvite} style={styles.flex} />
               </View>
               <View style={styles.status}>
                 <View
@@ -320,14 +321,15 @@ const styles = StyleSheet.create({
   labelRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 10 },
   labelSwatch: { width: 36, height: 28, borderRadius: 6 },
   labelInput: { flex: 1, paddingVertical: 7 },
-  code: {
-    fontSize: 34,
-    fontWeight: '800',
-    letterSpacing: 6,
+  invite: {
+    fontSize: 13,
     textAlign: 'center',
     writingDirection: 'ltr',
-    color: colors.text,
-    paddingVertical: 6,
+    color: colors.textSubtle,
+    backgroundColor: colors.list,
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
   },
   status: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8 },
   dot: { width: 9, height: 9, borderRadius: 5 },

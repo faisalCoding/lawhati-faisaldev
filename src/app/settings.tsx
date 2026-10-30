@@ -30,7 +30,7 @@ const PRINCIPLES: { icon: IconName; title: string; text: string }[] = [
   { icon: 'drag', title: 'سحب وإفلات', text: 'اضغط مطولًا على البطاقة واسحبها بين القوائم.' },
   { icon: 'layers', title: 'مرونة', text: 'قوالب للعمل والسفر والتسوق والدراسة، أو ابدأ من الصفر.' },
   { icon: 'puzzle', title: 'مجاني مع إضافات', text: 'فعّل التسميات والمواعيد وحدود العمل عند الحاجة.' },
-  { icon: 'users', title: 'تعاون لحظي', text: 'شارك اللوحة برمز وشاهد تعديلات الفريق فورًا.' },
+  { icon: 'users', title: 'تعاون لحظي', text: 'شارك رابط اللوحة وشاهد تعديلات الفريق فورًا.' },
 ];
 
 export default function SettingsScreen() {

@@ -21,6 +21,9 @@ execFileSync('npx', ['expo', 'export', '--platform', 'web', '--output-dir', OUT,
   env: {
     ...process.env,
     WEB_BASE_URL: BASE_URL,
+    // The address an invitation points back at. Built from the two above so a copy published
+    // somewhere else hands out links to itself and not to the one this was copied from.
+    EXPO_PUBLIC_APP_URL: `${WEB_ORIGIN}${BASE_URL}`,
     EXPO_PUBLIC_WEB_PREVIOUS_BRIDGE: `${PREVIOUS_ORIGIN}${BASE_URL}/migrate.html`,
   },
 });

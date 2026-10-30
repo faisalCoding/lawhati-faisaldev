@@ -24,9 +24,11 @@ export class MemberError extends Error {
    * `throttled`: too many attempts, too fast. `offline`: the site could not be reached.
    * `rejected`: the site would not make the account, and said why — in `message`, in its own
    * words, because only the site knows which rule was broken and how it reads in Arabic.
+   * `taken`: the address already has an account, which is an answer and not an error — the form
+   * becomes the sign-in form with the address already in it.
    */
   constructor(
-    readonly reason: 'invalid' | 'credentials' | 'throttled' | 'offline' | 'rejected',
+    readonly reason: 'invalid' | 'credentials' | 'throttled' | 'offline' | 'rejected' | 'taken',
     message?: string,
   ) {
     super(message ?? reason);
@@ -128,11 +130,21 @@ export async function signUpWithPassword(
     device_name: deviceName,
   });
 
+  if (res.status === 409) throw new MemberError('taken', await said(res));
   if (res.status === 422) throw new MemberError('rejected', await firstComplaint(res));
   if (res.status === 429) throw new MemberError('throttled');
   if (!res.ok) throw new MemberError('offline');
 
   return admitted(res);
+}
+
+/** The sentence the site sent with its answer, if it sent one. */
+async function said(res: Response): Promise<string | undefined> {
+  try {
+    return ((await res.json()) as { message?: string }).message;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The first thing the site said was wrong, or nothing when it did not say. */

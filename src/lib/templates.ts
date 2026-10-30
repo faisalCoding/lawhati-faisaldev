@@ -145,7 +145,7 @@ export function createWelcomeBoard(): Board {
   );
   add(
     doing,
-    newCard('شارك اللوحة برمز ليعمل عليها فريقك في الوقت نفسه', {
+    newCard('شارك رابط اللوحة ليعمل عليها فريقك في الوقت نفسه', {
       labelIds: ['l-orange'],
       due: addDays(todayISO(), 1),
     }),
