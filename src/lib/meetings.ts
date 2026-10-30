@@ -131,13 +131,11 @@ export function meetingSummary(meeting: Meeting): string {
   const sections: string[][] = [head];
 
   if (meeting.topics.length > 0) {
-    sections.push([
-      'المحاور',
-      ...meeting.topics.flatMap((topic, i) => [
-        `${ordinal(i + 1)}: ${topic.title}`,
-        ...numbered(outcomes.filter((o) => o.topicId === topic.id)),
-      ]),
-    ]);
+    // A blank line between topics, so each one reads as its own paragraph with what it decided.
+    const topics = meeting.topics.map((topic, i) =>
+      [`${ordinal(i + 1)}: ${topic.title}`, ...numbered(outcomes.filter((o) => o.topicId === topic.id))].join('\n'),
+    );
+    sections.push(['المحاور', topics.join('\n\n')]);
   }
   if (general.length > 0) sections.push(['توصيات عامّة', ...numbered(general)]);
 
