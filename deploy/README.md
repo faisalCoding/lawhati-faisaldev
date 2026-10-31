@@ -61,30 +61,24 @@ cp .env.example .env
 
 ## إشعارات الفريق
 
-حين يعدّل أحد بطاقة يتابعها زميل له، يرسل الخادم إشعارًا لهاتف الزميل **مباشرة إلى Web Push Cloud Messaging**، بمفتاح حساب خدمة يبقى على هذا السيرفر، دون أي وسيط.
+حين يُسند إلى أحد بطاقة أو مهمة، أو يعدّل زميل بطاقة يتابعها، يرسل هذا الخادم إشعارًا إلى متصفّحه بنفسه (Web Push)، موقَّعًا بزوج مفاتيح VAPID يملكه، دون Firebase ولا حساب لدى أيّ طرف ثالث. يصل والمتصفّح مغلق، وإلى «لوحتي» المثبَّتة من المتصفّح على الشاشة الرئيسية. أمّا تطبيق الأندرويد المبنيّ (APK) فتصله أخبار الفريق عبر المزامنة ما دام مفتوحًا، وتذكيرات المواعيد يجدولها الهاتف بنفسه.
 
-**وضع المفتاح (مرة واحدة):** نزّل المفتاح من Web Push (إعدادات المشروع ← Service accounts ← Generate new private key)، ثم من جهازك:
-
-```bash
-ssh root@72.61.207.108 'install -d -m 700 /etc/credstore'
-```
+**وضع المفتاح (مرة واحدة):** يولَّد الزوج على جهازك ويُرسَل عبر SSH مباشرة، فلا يُطبع المفتاح الخاصّ، ولا تبقى منه نسخة على جهازك ولا في `/tmp` على الخادم. ويرفض الأمر الكتابة فوق مفتاح موجود:
 
 ```bash
-scp ~/Downloads/اسم-ملف-المفتاح.json root@72.61.207.108:/etc/credstore/lawhati-faisaldev-vapid.json
+cd /Users/aaa/lawhati-faisaldev && K=$(mktemp) && chmod 600 "$K" && node scripts/vapid.mjs > "$K" 2>/dev/null && ssh root@72.61.207.108 'set -e; F=/etc/credstore/lawhati-faisaldev-vapid.json; if [ -e "$F" ]; then echo "موجود، لم يُستبدل"; exit 3; fi; install -d -m 700 /etc/credstore; umask 077; cat > "$F"; systemctl restart lawhati-faisaldev' < "$K"; rm -f "$K"
 ```
 
-```bash
-ssh root@72.61.207.108 'chmod 600 /etc/credstore/lawhati-faisaldev-vapid.json && systemctl restart lawhati-faisaldev && journalctl -u lawhati-faisaldev -n 5 --no-pager'
-```
+يجب أن يظهر في السجل: `Push notifications: sending from this server, signed with its own VAPID key.`، وأن يعيد `curl https://faisaldev.site/lawhati-sync/vapid` المفتاح العامّ بدل «push is not configured on this server».
 
-يجب أن يظهر في السجل: `Team notifications: sending through Web Push project sa-kayanalnhda-lawhati`.
+- **لا تولّد زوجًا جديدًا والقديم في مكانه.** استبداله يُبطل كلّ اشتراك قائم، فيتوقّف الإشعار عن كلّ متصفّح حتى يشترك من جديد.
 
 - لا يقرأ المفتاح غير root. يسلّمه systemd للخدمة وحدها (`ImportCredential=` في ملف الخدمة، ويحتاج systemd 254 أو أحدث، وهو المتاح في Ubuntu 24.04).
 - دون المفتاح تعمل المزامنة كالمعتاد، ويطبع السجل أن إشعارات الفريق متوقفة.
-- في `devices.json` لكل هاتف: معرّف عشوائي سري، ورمز Web Push، والاسم الذي يظهر لفريقه، والبطاقات التي يتابعها.
+- في `devices.json` لكل جهاز: معرّف عشوائي سري، واشتراك متصفّحه في الإشعارات، والاسم الذي يظهر لفريقه، والبطاقات التي يتابعها.
 - التعديلات المتتالية خلال دقيقة تصل في إشعار واحد. ويمكن تغيير المدة بالمتغير `TEAM_BATCH_MS` (بالملّي ثانية) في ملف الخدمة.
 - لا يصل الإشعار لصاحب التعديل، ولا لمن يفتح اللوحة نفسها في تلك اللحظة.
-- إذا حُذف التطبيق من هاتف، يرفض Web Push رمزه، فيحذفه الخادم ويتوقف عن الإرسال إليه.
+- إذا انتهى اشتراك متصفّح (مُسحت بيانات الموقع مثلًا)، يرفضه خادم المتصفّح، فيحذفه هذا الخادم ويتوقّف عن الإرسال إليه.
 
 تحديث الخادم بعد هذه الإضافة يكون بأمر النشر نفسه، والنسخ الأقدم من التطبيق تستمر في العمل معه.
 

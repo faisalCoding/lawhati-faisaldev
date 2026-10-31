@@ -1,4 +1,3 @@
-import * as Notifications from 'expo-notifications';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useSyncExternalStore } from 'react';
 
@@ -58,9 +57,24 @@ async function registerForTeamPush() {
   syncClient.syncTeam();
 }
 
+/**
+ * From a tap in the settings: asks this browser, which shows its prompt only in answer to one, and
+ * subscribes it if it says yes. On load the app only re-subscribes a browser that already said yes.
+ */
+export async function askForTeamPush(): Promise<void> {
+  await ensureDeviceId();
+  const subscription = await subscribeToPush(defaultServerUrl(), true);
+  await setPushToken(subscription);
+  setPushState(subscription ? 'ready' : 'unavailable');
+  syncClient.syncTeam();
+}
+
 /** Keeps the sync server up to date with this phone's token, name, choice and watched cards. */
 export function startTeamUpdates(): () => void {
-  if (!notificationsSupported) return () => {};
+  // A phone schedules its own reminders and hears about edits over the socket; a browser has this
+  // server's push. Gating on the first alone — reminders are native-only — shut the browser out of
+  // the one notification channel that was built for it.
+  if (!notificationsSupported && !webPushSupported) return () => {};
   registerForTeamPush();
 
   // A browser can drop a subscription on its own — a cleared site, a vendor

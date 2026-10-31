@@ -2,6 +2,7 @@ node_modules/
 .expo/
 dist/
 dist-web/
+dist-android/
 web-build/
 server/dist/
 server/data.json

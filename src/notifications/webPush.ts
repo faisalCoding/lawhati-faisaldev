@@ -43,8 +43,12 @@ export const webPushSupported =
  * Subscribes this browser, and returns the subscription as the sync server stores it.
  * Returns null whenever push cannot work here — an older browser, a refused permission, or a
  * server with no keys set up — which the caller treats as "no team notifications", not an error.
+ *
+ * `ask` is whether this may show the browser's permission prompt. Only in answer to a tap: a prompt
+ * nobody asked for is blocked outright by Safari and quietly muted by Chrome once it has been
+ * ignored a few times. Without it, only a browser that already said yes is subscribed.
  */
-export async function subscribeToPush(syncUrl: string): Promise<string | null> {
+export async function subscribeToPush(syncUrl: string, ask = false): Promise<string | null> {
   if (!webPushSupported) return null;
 
   try {
@@ -54,7 +58,9 @@ export async function subscribeToPush(syncUrl: string): Promise<string | null> {
     const { key } = (await res.json()) as { key?: string };
     if (!key) return null;
 
-    if ((await Notification.requestPermission()) !== 'granted') return null;
+    if (Notification.permission !== 'granted') {
+      if (!ask || (await Notification.requestPermission()) !== 'granted') return null;
+    }
 
     const registration = await navigator.serviceWorker.ready;
 
