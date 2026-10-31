@@ -101,6 +101,8 @@ export function describeWhat(what: ActivityWhat, n = 1, tasks = 1): string {
       return `إضافة القائمة ${q(what.list)}`;
     case 'list/title':
       return `إعادة تسمية القائمة ${q(what.from)} إلى ${q(what.list)}`;
+    case 'list/color':
+      return `تغيير لون القائمة ${q(what.list)}`;
     case 'list/wip':
       return what.limit ? `حد العمل في ${q(what.list)}: ${what.limit}` : `إلغاء حد العمل في ${q(what.list)}`;
     case 'list/move':
@@ -177,6 +179,8 @@ export function describeWhat(what: ActivityWhat, n = 1, tasks = 1): string {
       return `إضافة عمود ${COLUMN_KINDS[what.kind]} ${q(what.column)}`;
     case 'column/title':
       return `تغيير عمود ${q(what.from)} إلى ${q(what.column)}`;
+    case 'column/color':
+      return `تغيير لون العمود ${q(what.column)}`;
     case 'column/move':
       return `ترتيب عمود ${q(what.column)}`;
     case 'column/remove':

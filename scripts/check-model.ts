@@ -218,6 +218,8 @@ const strip = (b: Board) =>
     ...b,
     activity: undefined,
     updatedAt: 0,
+    lists: b.lists.map((l) => ({ ...l, color: l.color ?? null })),
+    columns: (b.columns ?? []).map((c) => ({ ...c, color: c.color ?? null })),
     cards: Object.fromEntries(
       Object.entries(b.cards).map(([id, c]) => [
         id,
@@ -776,6 +778,26 @@ ok('ولا السياسات حين يتحرّك عمود اجتماعات', !fir
 const twoP = [col('P1', 'policies'), col('P2', 'policies')];
 const policyMove = run(unfiled(twoP), columnMoveOps(unfiled(twoP), 'P2', 0));
 ok('والموضوع القديم يبقى في عمود سياساته', (policyMove.policyTopics ?? [])[0].columnId === 'P1');
+
+// ── لون الأعمدة ─────────────────────────────────────────────────────────────
+const withList = applyOp(board(), op({ type: 'list/add', list: { id: 'L', title: 'للتنفيذ', cardIds: [], wipLimit: null } }));
+const greenList = applyOp(withList, op({ type: 'list/update', listId: 'L', patch: { color: '#BAF3DB' } }));
+ok('لون القائمة يُحفظ، لا يُسقطه المختزِل', greenList.lists[0].color === '#BAF3DB');
+ok('ويُسجَّل في النشاط تغييرَ لون', greenList.activity?.at(-1)?.what.type === 'list/color');
+roundTrip(withList, op({ type: 'list/update', listId: 'L', patch: { color: '#BAF3DB' } }), 'تلوين قائمة لم يكن لها لون');
+const undoPatch = undoOf(withList, greenList, op({ type: 'list/update', listId: 'L', patch: { color: '#BAF3DB' } }))[0]?.op;
+ok('والتراجع يُرسل null لا قيمة تضيع في الطريق', JSON.stringify(undoPatch) .includes('"color":null'));
+ok('وإعادة اللون نفسه لا تغيّر شيئًا', applyOp(greenList, op({ type: 'list/update', listId: 'L', patch: { color: '#BAF3DB' } })) === greenList);
+
+const withColumn = applyOp(board(), op({ type: 'column/add', column: { id: 'C', title: 'الاجتماعات', kind: 'meetings' } }));
+const blueColumn = applyOp(withColumn, op({ type: 'column/update', columnId: 'C', patch: { color: '#CCE0FF' } }));
+ok('لون عمود الاجتماعات يُحفظ', blueColumn.columns?.[0].color === '#CCE0FF');
+ok('ويُسجَّل تغييرَ لون لا تغييرَ اسم', blueColumn.activity?.at(-1)?.what.type === 'column/color');
+roundTrip(withColumn, op({ type: 'column/update', columnId: 'C', patch: { color: '#CCE0FF' } }), 'تلوين عمود');
+roundTrip(blueColumn, op({ type: 'column/update', columnId: 'C', patch: { color: null } }), 'إزالة لون عمود');
+const renamed = applyOp(blueColumn, op({ type: 'column/update', columnId: 'C', patch: { title: 'اجتماعات الإدارة' } }));
+ok('وإعادة التسمية ما زالت تعمل ولا تمسّ اللون', renamed.columns?.[0].title === 'اجتماعات الإدارة' && renamed.columns?.[0].color === '#CCE0FF');
+roundTrip(blueColumn, op({ type: 'column/update', columnId: 'C', patch: { title: 'اجتماعات الإدارة' } }), 'إعادة تسمية عمود ملوّن');
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);

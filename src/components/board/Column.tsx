@@ -13,7 +13,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 
 import { pluralCards, toLatinDigits } from '../../lib/text';
 import { newCard } from '../../lib/templates';
-import { colors, LIST_GAP, LIST_WIDTH } from '../../lib/theme';
+import { COLUMN_COLORS, colors, LIST_GAP, LIST_WIDTH } from '../../lib/theme';
 import type { Card, Label, List, PowerUps } from '../../shared/types';
 import { batch } from '../../store/actions';
 import { Button, Icon, IconButton } from '../ui/Buttons';
@@ -21,9 +21,10 @@ import { ActionList, ConfirmForm, PromptForm, Sheet, type SheetAction } from '..
 import { Input, Txt } from '../ui/Txt';
 import { CARD_GAP, CARDS_PADDING_H, CARDS_PADDING_TOP, LONG_PRESS_MS, type BoardApi } from './boardApi';
 import { CardFace } from './CardFace';
+import { ColumnColorPicker } from './ColumnColorPicker';
 import { DraggableCard } from './DraggableCard';
 
-type SheetMode = 'menu' | 'rename' | 'wip' | 'delete';
+type SheetMode = 'menu' | 'rename' | 'color' | 'wip' | 'delete';
 
 export const Column = memo(function Column({
   list,
@@ -116,7 +117,7 @@ export const Column = memo(function Column({
   const dropExceedsLimit = wip !== null && incoming && count + 1 > wip;
 
   const close = () => setSheet(null);
-  const update = (patch: Partial<Pick<List, 'title' | 'wipLimit'>>) =>
+  const update = (patch: Partial<Pick<List, 'title' | 'wipLimit' | 'color'>>) =>
     api.dispatch({ type: 'list/update', listId: list.id, patch });
 
   const placeholder = (
@@ -195,6 +196,12 @@ export const Column = memo(function Column({
       icon: 'pencil',
       onPress: () => setSheet('rename'),
     },
+    {
+      label: 'لون القائمة',
+      hint: COLUMN_COLORS.find((c) => c.value === list.color)?.name ?? 'بلا لون',
+      icon: 'palette',
+      onPress: () => setSheet('color'),
+    },
   ];
   if (index > 0) {
     menu.push({
@@ -241,7 +248,7 @@ export const Column = memo(function Column({
 
   return (
     <View
-      style={[styles.column, { maxHeight }, collapsed && styles.collapsed]}
+      style={[styles.column, { maxHeight }, list.color ? { backgroundColor: list.color } : null, collapsed && styles.collapsed]}
       onLayout={(e) => api.reportColumn(list.id, e.nativeEvent.layout)}
     >
       <View style={styles.header}>
@@ -322,9 +329,18 @@ export const Column = memo(function Column({
       <Sheet
         visible={sheet !== null}
         onClose={close}
-        title={sheet === 'wip' ? 'حد العمل (WIP)' : sheet === 'rename' ? 'إعادة تسمية القائمة' : list.title}
+        title={
+          sheet === 'wip'
+            ? 'حد العمل (WIP)'
+            : sheet === 'rename'
+              ? 'إعادة تسمية القائمة'
+              : sheet === 'color'
+                ? 'لون القائمة'
+                : list.title
+        }
       >
         {sheet === 'menu' ? <ActionList actions={menu} /> : null}
+        {sheet === 'color' ? <ColumnColorPicker value={list.color} onChange={(color) => update({ color })} /> : null}
         {sheet === 'rename' ? (
           <PromptForm
             initial={list.title}
@@ -551,7 +567,7 @@ export function ColumnPreview({
   maxHeight: number;
 }) {
   return (
-    <View style={[styles.preview, { maxHeight }]}>
+    <View style={[styles.preview, { maxHeight }, list.color ? { backgroundColor: list.color } : null]}>
       <View style={styles.header}>
         <View style={[styles.titleBox, styles.grabArea]}>
           <Txt style={styles.title} numberOfLines={2}>

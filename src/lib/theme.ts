@@ -38,5 +38,21 @@ export const LABEL_COLORS = {
 
 export const COVER_COLORS = ['#4BCE97', '#F5CD47', '#FEA362', '#F87168', '#9F8FEF', '#579DFF', '#6CC3E0', '#E774BB'];
 
+/**
+ * The backgrounds a column can wear. Soft on purpose: the cards on a column stay white and its
+ * title stays dark, so every one of these has to keep both readable — a saturated column would
+ * drown its own cards.
+ */
+export const COLUMN_COLORS = [
+  { value: '#BAF3DB', name: 'أخضر' },
+  { value: '#F8E6A0', name: 'أصفر' },
+  { value: '#FEDEC8', name: 'برتقالي' },
+  { value: '#FFD5D2', name: 'أحمر' },
+  { value: '#DFD8FD', name: 'بنفسجي' },
+  { value: '#CCE0FF', name: 'أزرق' },
+  { value: '#C6EDFB', name: 'سماوي' },
+  { value: '#FDD0EC', name: 'وردي' },
+] as const;
+
 export const LIST_WIDTH = 272;
 export const LIST_GAP = 10;

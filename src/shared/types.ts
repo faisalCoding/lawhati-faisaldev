@@ -69,6 +69,8 @@ export interface List {
   cardIds: string[];
   /** Kanban WIP limit: the most cards this list should hold at once. */
   wipLimit: number | null;
+  /** Its background, one of COLUMN_COLORS. Absent or null: the plain grey every list starts with. */
+  color?: string | null;
 }
 
 /**
@@ -215,6 +217,8 @@ export interface BoardColumn {
   id: string;
   title: string;
   kind: BoardColumnKind;
+  /** Its background, one of COLUMN_COLORS. Absent or null: the plain grey of a task list. */
+  color?: string | null;
 }
 
 /** A heading inside a policy topic: «الانضباط والمواعيد» under «ضوابط وإجراءات الرحلات». */
@@ -374,6 +378,7 @@ export type ActivityWhat =
   | { type: 'list/add'; list: string }
   | { type: 'list/title'; list: string; from: string }
   | { type: 'list/wip'; list: string; limit: number | null }
+  | { type: 'list/color'; list: string }
   | { type: 'list/move'; list: string }
   | { type: 'list/remove'; list: string; cards: number }
   | { type: 'board/title'; title: string }
@@ -408,6 +413,7 @@ export type ActivityWhat =
   | { type: 'agenda/remove'; subject: string }
   | { type: 'column/add'; column: string; kind: BoardColumnKind }
   | { type: 'column/title'; column: string; from: string }
+  | { type: 'column/color'; column: string }
   | { type: 'column/move'; column: string }
   | { type: 'column/remove'; column: string; cards: number; movedTo: string | null }
   | { type: 'meeting/file'; meeting: string; column: string | null }
@@ -471,7 +477,7 @@ export type OpInput =
   /** Puts someone on the board's roster, or updates the name they go by. Idempotent. */
   | { type: 'member/seen'; member: BoardMember }
   | { type: 'list/add'; list: List }
-  | { type: 'list/update'; listId: string; patch: Partial<Pick<List, 'title' | 'wipLimit'>> }
+  | { type: 'list/update'; listId: string; patch: Partial<Pick<List, 'title' | 'wipLimit' | 'color'>> }
   | { type: 'list/move'; listId: string; toIndex: number }
   | { type: 'list/remove'; listId: string }
   | { type: 'card/add'; listId: string; card: Card }
@@ -534,7 +540,7 @@ export type OpInput =
   | { type: 'agenda/move'; subjectId: string; toIndex: number }
   | { type: 'agenda/remove'; subjectId: string }
   | { type: 'column/add'; column: BoardColumn; index?: number }
-  | { type: 'column/update'; columnId: string; patch: Partial<Pick<BoardColumn, 'title'>> }
+  | { type: 'column/update'; columnId: string; patch: Partial<Pick<BoardColumn, 'title' | 'color'>> }
   | { type: 'column/move'; columnId: string; toIndex: number }
   /**
    * `moveTo` names the column its cards go to. Without it they are destroyed with it, which the

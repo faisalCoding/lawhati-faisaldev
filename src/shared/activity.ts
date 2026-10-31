@@ -30,7 +30,8 @@ const MAX_UNDO_CARDS = 500;
 const MAX_HELD_CARDS = 600;
 
 export const BOARD_FIELDS = ['title', 'color', 'icon', 'buttons'] as const;
-export const LIST_FIELDS = ['title', 'wipLimit'] as const;
+export const LIST_FIELDS = ['title', 'wipLimit', 'color'] as const;
+export const COLUMN_FIELDS = ['title', 'color'] as const;
 export const CARD_FIELDS = ['title', 'description', 'due', 'dueDone', 'cover', 'link', 'assignees'] as const;
 export const CHECK_FIELDS = ['text', 'done', 'assignee', 'due'] as const;
 export const MEETING_FIELDS = ['title', 'date', 'place', 'columnId', 'held'] as const;
@@ -301,7 +302,10 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
     case 'column/update': {
       const was = (before.columns ?? []).find((c) => c.id === op.columnId);
       const now = (after.columns ?? []).find((c) => c.id === op.columnId);
-      return was && now && was.title !== now.title ? { type: 'column/title', column: now.title, from: was.title } : null;
+      if (!was || !now) return null;
+      if (was.title !== now.title) return { type: 'column/title', column: now.title, from: was.title };
+      if (!same(was.color, now.color)) return { type: 'column/color', column: now.title };
+      return null;
     }
     case 'column/move': {
       const column = (after.columns ?? []).find((c) => c.id === op.columnId);
@@ -364,6 +368,7 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
       if (!was || !now) return null;
       if (was.title !== now.title) return { type: 'list/title', list: now.title, from: was.title };
       if (was.wipLimit !== now.wipLimit) return { type: 'list/wip', list: now.title, limit: now.wipLimit };
+      if (!same(was.color, now.color)) return { type: 'list/color', list: now.title };
       return null;
     }
     case 'list/move': {
@@ -562,9 +567,17 @@ export function undoOf(before: Board, after: Board, op: Op): UndoStep[] {
       return [{ op: { type: 'column/remove', columnId: op.column.id } }];
     case 'column/update': {
       const was = (before.columns ?? []).find((c) => c.id === op.columnId);
-      return was && op.patch.title !== undefined && was.title !== op.patch.title
-        ? [{ op: { type: 'column/update', columnId: op.columnId, patch: { title: was.title } }, expect: { title: op.patch.title } }]
-        : [];
+      const now = (after.columns ?? []).find((c) => c.id === op.columnId);
+      const c =
+        was && now
+          ? changes(
+              COLUMN_FIELDS,
+              op.patch,
+              (k) => was[k] ?? null,
+              (k) => now[k] ?? null,
+            )
+          : null;
+      return c ? [{ op: { type: 'column/update', columnId: op.columnId, patch: c.patch }, expect: c.expect }] : [];
     }
     case 'column/move': {
       const from = (before.columns ?? []).findIndex((c) => c.id === op.columnId);
@@ -748,8 +761,10 @@ export function undoOf(before: Board, after: Board, op: Op): UndoStep[] {
           ? changes(
               LIST_FIELDS,
               op.patch,
-              (k) => was[k],
-              (k) => now[k],
+              // `?? null`: a list that had no colour must be put back as null. An undefined value
+              // would vanish on the way to the other devices, and the undo would reach none of them.
+              (k) => was[k] ?? null,
+              (k) => now[k] ?? null,
             )
           : null;
       return c ? [{ op: { type: 'list/update', listId: op.listId, patch: c.patch }, expect: c.expect }] : [];
@@ -1048,7 +1063,8 @@ export function stillApplies(board: Board, step: UndoStep): OpInput | null {
       return (board.columns ?? []).some((c) => c.id === op.columnId) ? op : null;
     case 'column/update': {
       const column = (board.columns ?? []).find((c) => c.id === op.columnId);
-      return column && (!expect || same(column.title, expect.title)) ? op : null;
+      const patch = column ? kept(op.patch, (k) => column[k as (typeof COLUMN_FIELDS)[number]]) : null;
+      return patch ? ({ ...op, patch } as OpInput) : null;
     }
     case 'topic/addPolicy':
       return (board.policyTopics ?? []).some((t) => t.id === op.topic.id) ? null : op;

@@ -8,11 +8,12 @@ import { formatLongDate, todayISO } from '../../lib/dates';
 import { uid } from '../../lib/ids';
 import { inColumn, isHeld, livingClauses, movedProgress } from '../../lib/meetings';
 import { pluralPolicies, pluralSubtopics, pluralTopics } from '../../lib/text';
-import { colors, LIST_GAP, LIST_WIDTH } from '../../lib/theme';
+import { colors, COLUMN_COLORS, LIST_GAP, LIST_WIDTH } from '../../lib/theme';
 import type { Board, BoardColumn, BoardColumnKind, Meeting, PolicyTopic } from '../../shared/types';
 import { dispatch, moveColumnWithinKind, startMeeting } from '../../store/actions';
 import type { ViewRef } from './CardFace';
 import { CARD_GAP, CARDS_PADDING_H, CARDS_PADDING_TOP, LONG_PRESS_MS, type BoardApi } from './boardApi';
+import { ColumnColorPicker } from './ColumnColorPicker';
 import { runTapTarget } from './tapTargets';
 import { Icon, IconButton } from '../ui/Buttons';
 import { ActionList, Sheet, type SheetAction } from '../ui/Sheet';
@@ -62,7 +63,7 @@ export function RecordColumn({
   placeholderIndex: number;
   placeholderHeight: number;
 }) {
-  const [sheet, setSheet] = useState<'menu' | 'remove' | 'rename' | 'agenda' | null>(null);
+  const [sheet, setSheet] = useState<'menu' | 'remove' | 'rename' | 'color' | 'agenda' | null>(null);
   const [moving, setMoving] = useState<{ id: string; text: string } | null>(null);
   const [composing, setComposing] = useState(false);
 
@@ -107,7 +108,15 @@ export function RecordColumn({
       // the minutes already write them.
       : inColumn(board.policyTopics ?? [], column, columns);
 
-  const menu: SheetAction[] = [{ label: 'إعادة التسمية', icon: 'pencil', onPress: () => setSheet('rename') }];
+  const menu: SheetAction[] = [
+    { label: 'إعادة التسمية', icon: 'pencil', onPress: () => setSheet('rename') },
+    {
+      label: 'لون العمود',
+      hint: COLUMN_COLORS.find((c) => c.value === column.color)?.name ?? 'بلا لون',
+      icon: 'palette',
+      onPress: () => setSheet('color'),
+    },
+  ];
   if (column.kind === 'meetings') {
     menu.push({
       label: 'المحاور الثابتة',
@@ -196,7 +205,12 @@ export function RecordColumn({
 
   return (
     <View
-      style={[styles.column, { maxHeight }, collapsed && styles.collapsed]}
+      style={[
+        styles.column,
+        { maxHeight },
+        column.color ? { backgroundColor: column.color } : null,
+        collapsed && styles.collapsed,
+      ]}
       onLayout={(e) => api.reportColumn(column.id, e.nativeEvent.layout)}
     >
       <View style={styles.header}>
@@ -261,6 +275,12 @@ export function RecordColumn({
           <RenameColumn board={board} column={column} onDone={() => setSheet(null)} />
         ) : null}
         {sheet === 'agenda' ? <AgendaSheet board={board} /> : null}
+        {sheet === 'color' ? (
+          <ColumnColorPicker
+            value={column.color}
+            onChange={(color) => dispatch(board.id, { type: 'column/update', columnId: column.id, patch: { color } })}
+          />
+        ) : null}
         {sheet === 'remove' ? (
           <RemoveColumn
             board={board}
@@ -512,7 +532,7 @@ export function RecordColumnPreview({
       ? inColumn(board.meetings ?? [], column, columns)
       : inColumn(board.policyTopics ?? [], column, columns);
   return (
-    <View style={[styles.preview, { maxHeight }]}>
+    <View style={[styles.preview, { maxHeight }, column.color ? { backgroundColor: column.color } : null]}>
       <View style={styles.header}>
         <View style={styles.titleBox}>
           <Icon name={column.kind === 'meetings' ? 'calendar' : 'book'} size={15} color={colors.textSubtle} />

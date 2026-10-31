@@ -4,6 +4,7 @@ import {
   cardField,
   CHECK_FIELDS,
   checkField,
+  COLUMN_FIELDS,
   LIST_FIELDS,
   MEETING_FIELDS,
   meetingField,
@@ -376,9 +377,12 @@ function reduce(board: Board, op: Op): Board {
     case 'column/update': {
       const columns = board.columns ?? [];
       const index = columns.findIndex((c) => c.id === op.columnId);
-      if (index < 0 || op.patch.title === undefined || columns[index].title === op.patch.title) return board;
+      if (index < 0) return board;
+      const patch = pick(op.patch, COLUMN_FIELDS);
+      const keys = Object.keys(patch) as (keyof typeof patch)[];
+      if (keys.every((key) => same(patch[key], columns[index][key]))) return board;
       const next = columns.slice();
-      next[index] = { ...next[index], title: op.patch.title };
+      next[index] = { ...next[index], ...patch };
       return { ...board, columns: next };
     }
 
