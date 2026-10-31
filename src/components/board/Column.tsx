@@ -255,8 +255,8 @@ export const Column = memo(function Column({
         {/* Measured from outside the GestureDetector: on the web it adds a wrapper element. */}
         <View style={styles.grabArea} onLayout={(e) => api.reportGrabArea(listId, e.nativeEvent.layout)}>
           {/* Without this the detector sets touch-action: none, and a finger landing on the
-          title stops the browser scrolling the board under it. The list only lifts after a
-          long press, so the two never want the same touch. */}
+          title stops the browser scrolling the board under it. Once a long press lifts the
+          list, BoardCanvas keeps the browser from taking the same finger back as a scroll. */}
           <GestureDetector gesture={headerGesture} touchAction="manipulation">
             <View
               collapsable={false}

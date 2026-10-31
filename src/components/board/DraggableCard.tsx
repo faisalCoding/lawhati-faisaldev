@@ -188,8 +188,8 @@ export const DraggableCard = memo(function DraggableCard({
       style={[styles.wrap, hidden && styles.hidden]}
     >
       {/* Without this the detector sets touch-action: none, and a finger landing on a card —
-      most of the board — stops the browser scrolling the board under it. The drag only
-      starts after a long press, so the two never want the same touch. */}
+      most of the board — stops the browser scrolling the board under it. Once a long press
+      lifts the card, BoardCanvas keeps the browser from taking the same finger back as a scroll. */}
       <GestureDetector gesture={gesture} touchAction="manipulation">
         <View
           collapsable={false}

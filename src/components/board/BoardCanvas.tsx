@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { StyleSheet, View, type ScrollView as RNScrollView } from 'react-native';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Platform, StyleSheet, View, type ScrollView as RNScrollView } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -153,6 +153,21 @@ export function BoardCanvas({
   const originX = useSharedValue(0);
   const originY = useSharedValue(0);
   const lift = useSharedValue(0);
+
+  // On the web the cards and titles leave touch-action to the browser, so a plain swipe scrolls the
+  // board. The price: once a long press has lifted something, the browser still reads the next move
+  // of the same finger as a scroll, starts one, cancels the pointer — and what was lifted drops out
+  // of the finger. So from the moment a drag starts, the moves are the drag's. Before it, a swipe is
+  // still a scroll; only a finger that held still long enough to lift something is kept.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const keep = (e: TouchEvent) => {
+      if (activeId.value !== '' && e.cancelable) e.preventDefault();
+    };
+    // Not passive: a passive listener's preventDefault is ignored, and the browser would scroll.
+    document.addEventListener('touchmove', keep, { passive: false });
+    return () => document.removeEventListener('touchmove', keep);
+  }, [activeId]);
 
   const api = useMemo<BoardApi>(() => {
     // Positions are worked out from the lists' order and the cards' heights instead of being read
