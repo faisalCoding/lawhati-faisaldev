@@ -25,7 +25,16 @@ export function DocKicker({ children }: { children: ReactNode }) {
 export function DocTitle({ children, onPress }: { children: ReactNode; onPress?: () => void }) {
   return (
     <DocTap onPress={onPress} label={typeof children === 'string' ? children : undefined}>
-      <Txt style={styles.title}>{children}</Txt>
+      <View style={styles.titleRow}>
+        <Txt style={styles.title}>{children}</Txt>
+        {/* A title that opens what edits it says so. Nothing else on a page that reads as a
+            document hints that the title is a door, and a button would make it a form again. */}
+        {onPress ? (
+          <View style={styles.titleEdit}>
+            <Icon name="pencil" size={16} color={colors.textFaint} />
+          </View>
+        ) : null}
+      </View>
     </DocTap>
   );
 }
@@ -153,7 +162,10 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   kicker: { fontSize: 11, fontWeight: '700', color: colors.textFaint, letterSpacing: 1, marginBottom: 6 },
-  title: { fontSize: 21, fontWeight: '700', lineHeight: 36 },
+  titleRow: { flexDirection: 'row-reverse', alignItems: 'flex-start', gap: 8 },
+  title: { flexShrink: 1, fontSize: 21, fontWeight: '700', lineHeight: 36 },
+  // Level with the first line of a title that wraps, not the middle of the block: (36 - 16) / 2.
+  titleEdit: { marginTop: 10 },
   meta: { fontSize: 13, color: colors.textSubtle, lineHeight: 26 },
   rule: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: 16 },
   heading: { marginTop: 18, marginBottom: 6 },
