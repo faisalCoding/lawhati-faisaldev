@@ -156,6 +156,7 @@ type SheetMode =
   | null
   | { kind: 'subject' }
   | { kind: 'renameSubject' }
+  | { kind: 'removeSubject' }
   | { kind: 'subtopic'; sub: PolicySubtopic; index: number }
   | { kind: 'renameSubtopic'; sub: PolicySubtopic }
   | { kind: 'addSubtopic' }
@@ -178,6 +179,7 @@ function PolicySheet({
   const titles: Record<NonNullable<SheetMode>['kind'], string> = {
     subject: topic.title,
     renameSubject: 'عنوان الموضوع',
+    removeSubject: 'حذف الموضوع',
     subtopic: sheet?.kind === 'subtopic' ? sheet.sub.title : 'الموضوع الفرعي',
     renameSubtopic: 'عنوان الموضوع الفرعي',
     addSubtopic: 'موضوع فرعي جديد',
@@ -200,6 +202,7 @@ function PolicySheet({
           actions={[
             { label: 'تعديل العنوان', icon: 'pencil', onPress: () => onSet({ kind: 'renameSubject' }) },
             { label: 'إضافة موضوع فرعي', icon: 'plus', onPress: () => onSet({ kind: 'addSubtopic' }) },
+            { label: 'حذف الموضوع', icon: 'trash', destructive: true, onPress: () => onSet({ kind: 'removeSubject' }) },
           ]}
         />
       ) : null}
@@ -254,6 +257,7 @@ function PolicySheet({
       ) : null}
 
       {sheet?.kind === 'clause' ? <EditClause board={board} clause={sheet.clause} onDone={close} /> : null}
+      {sheet?.kind === 'removeSubject' ? <RemoveSubject board={board} topic={topic} onDone={close} /> : null}
     </Sheet>
   );
 }
@@ -397,12 +401,59 @@ function EditClause({ board, clause: policy, onDone }: { board: Board; clause: P
         }}
         style={({ pressed }) => [styles.removeChoice, pressed && styles.pressed]}
       >
-        <Icon name="archive" size={16} color={colors.danger} />
-        <Txt style={styles.removeDelete}>إلغاء العمل بها</Txt>
+        <Icon name="trash" size={16} color={colors.danger} />
+        <Txt style={styles.removeDelete}>حذف السياسة</Txt>
       </Pressable>
-      <Txt style={styles.removeWarn}>تخرج من اللوحة ويبقى سجلّها.</Txt>
+      <Txt style={styles.removeWarn}>تخرج من السياسات السارية، ويبقى سجلّها: متى أُقرّت ومتى حُذفت.</Txt>
 
       <PolicyHistory policy={policy} />
+    </View>
+  );
+}
+
+/**
+ * Deleting a whole subject, and deciding first what happens to its rules: moved under another
+ * subject, where they keep applying, or gone with it. Asked before, as removing a column asks,
+ * because the second one is not something to find out afterwards.
+ */
+function RemoveSubject({ board, topic, onDone }: { board: Board; topic: PolicyTopic; onDone: () => void }) {
+  const rules = (board.policies ?? []).filter((p) => (p.topicId ?? null) === topic.id);
+  const others = (board.policyTopics ?? []).filter((t) => t.id !== topic.id);
+  const remove = (moveTo: string | null) => {
+    dispatch(board.id, { type: 'topic/removePolicy', topicId: topic.id, ...(moveTo ? { moveTo } : {}) });
+    onDone();
+    goBack();
+  };
+
+  return (
+    <View style={styles.remove}>
+      {rules.length > 0 && others.length > 0 ? (
+        <>
+          <Txt style={styles.removeWarn}>{`فيه ${pluralPolicies(rules.length)}. أين تذهب؟`}</Txt>
+          {others.map((t) => (
+            <Pressable
+              key={t.id}
+              accessibilityRole="button"
+              onPress={() => remove(t.id)}
+              style={({ pressed }) => [styles.removeChoice, pressed && styles.pressed]}
+            >
+              <Icon name="move" size={16} color={colors.primary} />
+              <Txt style={styles.removeMove}>انقلها إلى {t.title}</Txt>
+            </Pressable>
+          ))}
+        </>
+      ) : null}
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => remove(null)}
+        style={({ pressed }) => [styles.removeChoice, pressed && styles.pressed]}
+      >
+        <Icon name="trash" size={16} color={colors.danger} />
+        <Txt style={styles.removeDelete}>
+          {rules.length > 0 ? `احذف الموضوع و${pluralPolicies(rules.length, true)} معه` : 'احذف الموضوع'}
+        </Txt>
+      </Pressable>
+      {rules.length > 0 ? <Txt style={styles.removeWarn}>البنود المحذوفة مع موضوعها لا يبقى لها سجلّ.</Txt> : null}
     </View>
   );
 }

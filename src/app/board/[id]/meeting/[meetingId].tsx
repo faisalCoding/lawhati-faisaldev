@@ -485,7 +485,7 @@ function OutcomeClause({
   marker: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<'detail' | 'topics' | 'cards' | 'people' | 'move'>('detail');
+  const [view, setView] = useState<'detail' | 'topics' | 'repeal' | 'cards' | 'people' | 'move'>('detail');
   const [textDraft, setTextDraft] = useState(outcome.text);
   const [creatingTopic, setCreatingTopic] = useState(false);
   const [newTopicDraft, setNewTopicDraft] = useState('');
@@ -570,6 +570,8 @@ function OutcomeClause({
   const sheetTitle =
     view === 'topics'
       ? 'تصنيف السياسة كبند في موضوع'
+      : view === 'repeal'
+      ? 'أيّ سياسة تُحذف؟'
       : view === 'cards'
       ? 'في أي بطاقة؟'
       : view === 'people'
@@ -754,25 +756,44 @@ function OutcomeClause({
                 </View>
               </View>
             ) : outcome.kind === 'policy' ? (
-              <Pressable
-                onPress={() => setView('topics')}
-                style={({ pressed }) => [styles.sheetActionRow, pressed && styles.pressed]}
-              >
-                <View style={styles.sheetActionRight}>
-                  <Icon name="book" size={16} color={colors.primary} />
-                  <Txt style={styles.sheetActionTitle}>تصنيف السياسة</Txt>
-                </View>
-                <View style={styles.sheetActionLeft}>
-                  <Txt style={[styles.sheetActionValue, policy && styles.sheetActionValuePrimary]}>
-                    {policyTopic
-                      ? `بند في: ${policyTopic.title}${policySubtopic ? ` › ${policySubtopic.title}` : ''}`
-                      : policy
-                      ? 'مُقرّة (بدون موضوع)'
-                      : 'إقرار كبند في السياسات'}
-                  </Txt>
-                  <Icon name="chevron-left" size={14} color={colors.textFaint} />
-                </View>
-              </Pressable>
+              <>
+                <Pressable
+                  onPress={() => setView('topics')}
+                  style={({ pressed }) => [styles.sheetActionRow, pressed && styles.pressed]}
+                >
+                  <View style={styles.sheetActionRight}>
+                    <Icon name="book" size={16} color={colors.primary} />
+                    <Txt style={styles.sheetActionTitle}>تصنيف السياسة</Txt>
+                  </View>
+                  <View style={styles.sheetActionLeft}>
+                    <Txt style={[styles.sheetActionValue, policy && styles.sheetActionValuePrimary]}>
+                      {policyTopic
+                        ? `بند في: ${policyTopic.title}${policySubtopic ? ` › ${policySubtopic.title}` : ''}`
+                        : policy
+                        ? 'مُقرّة (بدون موضوع)'
+                        : 'إقرار كبند في السياسات'}
+                    </Txt>
+                    <Icon name="chevron-left" size={14} color={colors.textFaint} />
+                  </View>
+                </Pressable>
+                {/* A decision that stops a rule is as common as one that starts one, so it has its
+                    own row here rather than the last place in the list of where to file a new one. */}
+                {!policy && existingPolicies.length ? (
+                  <Pressable
+                    onPress={() => setView('repeal')}
+                    style={({ pressed }) => [styles.sheetActionRow, pressed && styles.pressed]}
+                  >
+                    <View style={styles.sheetActionRight}>
+                      <Icon name="trash" size={16} color={colors.danger} />
+                      <Txt style={styles.sheetActionTitle}>حذف سياسة قائمة</Txt>
+                    </View>
+                    <View style={styles.sheetActionLeft}>
+                      <Txt style={styles.sheetActionValue}>اختر السياسة</Txt>
+                      <Icon name="chevron-left" size={14} color={colors.textFaint} />
+                    </View>
+                  </Pressable>
+                ) : null}
+              </>
             ) : null}
 
             {/* Task -> Card conversion */}
@@ -957,26 +978,38 @@ function OutcomeClause({
                 ))}
               </>
             ) : null}
+          </ScrollView>
+        )}
 
-            {/* Or the decision is that a rule stops: it leaves the policies and keeps its record. */}
-            {!policy && existingPolicies.length ? (
-              <>
-                <Txt style={styles.choiceHead}>أو تحذف سياسة قائمة:</Txt>
-                {existingPolicies.map((p) => (
-                  <Pressable
-                    key={p.id}
-                    accessibilityRole="button"
-                    onPress={() => repealPolicy(p.id)}
-                    style={({ pressed }) => [styles.choice, pressed && styles.pressed]}
-                  >
-                    <Icon name="trash" size={16} color={colors.danger} />
-                    <Txt style={styles.choiceTextDanger} numberOfLines={2}>
-                      {p.text}
-                    </Txt>
-                  </Pressable>
-                ))}
-              </>
-            ) : null}
+        {view === 'repeal' && (
+          <ScrollView style={styles.sheetList} keyboardShouldPersistTaps="handled">
+            <Txt style={styles.note}>تخرج السياسة من السياسات السارية، ويبقى سجلّها: متى أُقرّت ومتى حُذفت وبأيّ اجتماع.</Txt>
+            {/* Grouped under their subjects, as the policies page shows them: a rule is easier to
+                find where it lives than in one long list. */}
+            {[...policyTopics.map((t) => ({ id: t.id as string | null, title: t.title })), { id: null, title: 'بلا موضوع' }].map(
+              (group) => {
+                const rules = existingPolicies.filter((p) => (p.topicId ?? null) === group.id);
+                if (rules.length === 0) return null;
+                return (
+                  <View key={group.id ?? 'loose'}>
+                    <Txt style={styles.choiceHead}>{group.title}</Txt>
+                    {rules.map((p) => (
+                      <Pressable
+                        key={p.id}
+                        accessibilityRole="button"
+                        onPress={() => repealPolicy(p.id)}
+                        style={({ pressed }) => [styles.choice, pressed && styles.pressed]}
+                      >
+                        <Icon name="trash" size={16} color={colors.danger} />
+                        <Txt style={styles.choiceTextDanger} numberOfLines={3}>
+                          {p.text}
+                        </Txt>
+                      </Pressable>
+                    ))}
+                  </View>
+                );
+              },
+            )}
           </ScrollView>
         )}
 
