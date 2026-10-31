@@ -31,7 +31,13 @@ import { OUTCOME_NAMES } from '../../../../lib/activityText';
 import { colors } from '../../../../lib/theme';
 import type { IconName } from '../../../../components/ui/iconData';
 import type { Board, Meeting, MeetingTopic, Outcome, OutcomeKind } from '../../../../shared/types';
-import { cardFromOutcome, checklistFromOutcome, dispatch, policyFromOutcome } from '../../../../store/actions';
+import {
+  cardFromOutcome,
+  checklistFromOutcome,
+  dispatch,
+  policyFromOutcome,
+  repealFromOutcome,
+} from '../../../../store/actions';
 import { useBoard } from '../../../../store/store';
 
 /**
@@ -289,7 +295,7 @@ function MeetingForm({ board, meeting, onDone }: { board: Board; meeting: Meetin
         icon={copied ? 'check' : 'copy'}
         variant="secondary"
         onPress={async () => {
-          await Clipboard.setStringAsync(meetingSummary(meeting));
+          await Clipboard.setStringAsync(meetingSummary(meeting, board.policies));
           setCopied(true);
         }}
       />
@@ -498,7 +504,9 @@ function OutcomeClause({
   const policySubtopic =
     policyTopic && policy?.subtopicId ? policyTopic.subtopics.find((s) => s.id === policy.subtopicId) : undefined;
   const policyTopics = board.policyTopics ?? [];
-  const existingPolicies = (board.policies ?? []).filter((p) => p.id !== policy?.id);
+  // Only rules still in force: amending a repealed one rewrote words nobody works by any more.
+  const existingPolicies = (board.policies ?? []).filter((p) => p.id !== policy?.id && !p.repealedAt);
+  const repeals = outcome.kind === 'policy' && !!outcome.repeals;
 
   const update = (patch: Parameters<typeof dispatchOutcome>[3]) =>
     dispatchOutcome(board.id, meeting.id, outcome.id, patch);
@@ -548,6 +556,11 @@ function OutcomeClause({
     setView('detail');
   };
 
+  const repealPolicy = (policyId: string) => {
+    repealFromOutcome(board.id, meeting.id, outcome.id, policyId);
+    setView('detail');
+  };
+
   const handleClose = () => {
     setOpen(false);
     setView('detail');
@@ -574,7 +587,7 @@ function OutcomeClause({
           OUTCOME_NAMES[outcome.kind],
           outcome.assignee?.name,
           outcome.due && formatLongDate(outcome.due),
-          policy && (policyTopic ? `بند في ${policyTopic.title}` : 'بند في السياسات'),
+          policy && (repeals ? 'حذف سياسة قائمة' : policyTopic ? `بند في ${policyTopic.title}` : 'بند في السياسات'),
           card && `على اللوحة: ${card.title}`,
         )}
         onPress={openSheet}
@@ -728,7 +741,19 @@ function OutcomeClause({
             </Pressable>
 
             {/* Policy options */}
-            {outcome.kind === 'policy' ? (
+            {repeals && policy ? (
+              <View style={styles.sheetActionRow}>
+                <View style={styles.sheetActionRight}>
+                  <Icon name="trash" size={16} color={colors.danger} />
+                  <Txt style={styles.sheetActionTitle}>حذفت سياسة</Txt>
+                </View>
+                <View style={styles.sheetActionLeft}>
+                  <Txt style={styles.sheetActionValue} numberOfLines={2}>
+                    {policy.text}
+                  </Txt>
+                </View>
+              </View>
+            ) : outcome.kind === 'policy' ? (
               <Pressable
                 onPress={() => setView('topics')}
                 style={({ pressed }) => [styles.sheetActionRow, pressed && styles.pressed]}
@@ -926,6 +951,26 @@ function OutcomeClause({
                   >
                     <Icon name="replace" size={16} color={colors.textSubtle} />
                     <Txt style={styles.choiceText} numberOfLines={2}>
+                      {p.text}
+                    </Txt>
+                  </Pressable>
+                ))}
+              </>
+            ) : null}
+
+            {/* Or the decision is that a rule stops: it leaves the policies and keeps its record. */}
+            {!policy && existingPolicies.length ? (
+              <>
+                <Txt style={styles.choiceHead}>أو تحذف سياسة قائمة:</Txt>
+                {existingPolicies.map((p) => (
+                  <Pressable
+                    key={p.id}
+                    accessibilityRole="button"
+                    onPress={() => repealPolicy(p.id)}
+                    style={({ pressed }) => [styles.choice, pressed && styles.pressed]}
+                  >
+                    <Icon name="trash" size={16} color={colors.danger} />
+                    <Txt style={styles.choiceTextDanger} numberOfLines={2}>
                       {p.text}
                     </Txt>
                   </Pressable>

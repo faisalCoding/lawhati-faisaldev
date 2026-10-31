@@ -224,6 +224,7 @@ const strip = (b: Board) =>
         due: o.due ?? null,
         cardId: o.cardId ?? null,
         policyId: o.policyId ?? null,
+        repeals: o.repeals ?? false,
         done: o.done ?? false,
       })),
     })),
@@ -692,6 +693,33 @@ const bare = meetingSummary(m({ title: 'لقاء قصير', date: '2026-10-25' }
 ok('اجتماع فارغ: سطران فقط', bare === 'محضر اجتماع: لقاء قصير\nالتاريخ: الأحد 25 أكتوبر 2026');
 ok('بلا مهام: لا قسم مهام', !meetingSummary(m({ outcomes: [open({ kind: 'note', text: 'خلاصة' })] })).includes('المهام'));
 ok('مهام وحدها: «المهام»', sectionsOf(meetingSummary(m({ outcomes: [open({ kind: 'task' })] }))).some((b) => b[0] === 'المهام'));
+
+// ── حذف سياسة قائمة بقرار من الاجتماع ────────────────────────────────────────
+const ruled = applyOp(
+  applyOp(withMeeting, op({ type: 'outcome/add', meetingId: 'a', outcome: outcome('r1', 'policy', 'حذف منع الجوال') })),
+  op({ type: 'policy/add', policy: { id: 'PJ', text: 'يُمنع الجوال في الحلقة', at: 1 } }),
+);
+const struckOut = applyOp(ruled, op({ type: 'outcome/update', meetingId: 'a', outcomeId: 'r1', patch: { policyId: 'PJ', repeals: true } }));
+ok('الحذف يُحفظ على التوصية، لا يُسقطه المختزِل', outcomesOf(struckOut)[0].repeals === true && outcomesOf(struckOut)[0].policyId === 'PJ');
+ok('ويُسجَّل في النشاط حذفًا لا تعديلًا', (struckOut.activity?.at(-1)?.what as { repealed?: boolean }).repealed === true);
+roundTrip(ruled, op({ type: 'outcome/update', meetingId: 'a', outcomeId: 'r1', patch: { policyId: 'PJ', repeals: true } }), 'ربط توصية بسياسة تحذفها');
+
+const repealedRule = applyOp(struckOut, op({ type: 'policy/repeal', policyId: 'PJ' }));
+ok('والسياسة تخرج من السارية ويبقى سجلّها', repealedRule.policies?.find((x) => x.id === 'PJ')?.repealedAt != null);
+
+const repealMeeting = m({
+  outcomes: [
+    open({ id: 'p1', kind: 'policy', text: 'يُعوَّض التأخّر في الأسبوع نفسه' }),
+    open({ id: 'p2', kind: 'policy', text: 'حذف منع الجوال', policyId: 'PJ', repeals: true }),
+  ],
+});
+const repealSummary = meetingSummary(repealMeeting, repealedRule.policies);
+const repealBlocks = sectionsOf(repealSummary);
+ok('المحذوفة في قسمها بنصّ السياسة نفسها', repealBlocks.some((b) => b[0] === 'السياسات المحذوفة' && b.includes('- يُمنع الجوال في الحلقة')));
+ok('ولا تُعدّ في المضافة', repealBlocks.some((b) => b[0] === 'السياسات المضافة' && !b.some((l) => l.includes('الجوال'))));
+ok('وبلا السياسات يبقى نصّ التوصية', meetingSummary(repealMeeting).includes('- حذف منع الجوال'));
+
+ok('مهمة بلا مسؤول تقول ذلك', meetingSummary(m({ outcomes: [open({ kind: 'task', text: 'تجهيز القاعة', due: '2026-10-27' })] })).includes('- تجهيز القاعة — بلا مسؤول — الثلاثاء 27 أكتوبر 2026'));
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);

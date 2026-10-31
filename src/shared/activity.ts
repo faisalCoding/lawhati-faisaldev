@@ -44,6 +44,7 @@ export const OUTCOME_FIELDS = [
   'cardId',
   'itemId',
   'policyId',
+  'repeals',
   'done',
 ] as const;
 export const POLICY_TOPIC_FIELDS = ['title', 'columnId'] as const;
@@ -90,6 +91,8 @@ export function outcomeField(outcome: Outcome, key: OutcomeField): unknown {
       return outcome.itemId ?? null;
     case 'policyId':
       return outcome.policyId ?? null;
+    case 'repeals':
+      return outcome.repeals ?? false;
     case 'done':
       return outcome.done ?? false;
     default:
@@ -249,6 +252,9 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
         // dispatched before the rule is written (see `policyFromOutcome`): afterwards every rule
         // exists and the two cases are indistinguishable from here.
         const existed = (before.policies ?? []).some((x) => x.id === now.policyId);
+        if (now.repeals) {
+          return { type: 'outcome/policy', meeting: meeting.title, text: now.text, added: false, repealed: true };
+        }
         return { type: 'outcome/policy', meeting: meeting.title, text: now.text, added: !existed };
       }
       if ((was.done ?? false) !== (now.done ?? false)) {

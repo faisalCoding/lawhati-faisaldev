@@ -145,8 +145,16 @@ export interface Outcome {
   cardId?: string | null;
   /** `task`: set when it went into `cardId`'s checklist rather than becoming a card of its own. */
   itemId?: string | null;
-  /** `policy`: the standing rule it added or amended, once it has. */
+  /** `policy`: the standing rule it added, amended or repealed, once it has. */
   policyId?: string | null;
+  /**
+   * `policy`: it repealed `policyId` rather than writing it.
+   *
+   * Said here and not read off the rule, because the rule only knows that it was repealed, not by
+   * whom: a rule this meeting added and a later one repealed would otherwise read, in this
+   * meeting's own minutes, as one it struck out.
+   */
+  repeals?: boolean;
   /**
    * Settled: done, or decided against, or simply dealt with.
    *
@@ -419,7 +427,7 @@ export type ActivityWhat =
   | { type: 'policy/repeal'; policy: string }
   | { type: 'policy/restore'; policy: string }
   | { type: 'policy/remove'; policy: string }
-  | { type: 'outcome/policy'; meeting: string; text: string; added: boolean }
+  | { type: 'outcome/policy'; meeting: string; text: string; added: boolean; repealed?: boolean }
   | { type: 'outcome/done'; meeting: string; text: string; done: boolean };
 
 /**
@@ -507,7 +515,16 @@ export type OpInput =
       patch: Partial<
         Pick<
           Outcome,
-          'kind' | 'text' | 'topicId' | 'assignee' | 'due' | 'cardId' | 'itemId' | 'policyId' | 'done'
+          | 'kind'
+          | 'text'
+          | 'topicId'
+          | 'assignee'
+          | 'due'
+          | 'cardId'
+          | 'itemId'
+          | 'policyId'
+          | 'repeals'
+          | 'done'
         >
       >;
     }

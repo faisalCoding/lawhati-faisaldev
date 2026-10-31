@@ -116,8 +116,11 @@ export function stuckBefore(board: Board, meetingId: string): StuckInMeeting[] {
  * Plain text, no markup. It lands in a chat, an email, a notes app, and `*bold*` reads as stars in
  * all but the first. A section with nothing in it is left out rather than printed empty, so a
  * short meeting makes a short message.
+ *
+ * `policies` names the rules a decision struck out: «حذف السياسة» says nothing on its own, and the
+ * reader wants to know which rule stopped.
  */
-export function meetingSummary(meeting: Meeting): string {
+export function meetingSummary(meeting: Meeting, policies: readonly Policy[] = []): string {
   const outcomes = meeting.outcomes ?? [];
   const topicIds = new Set(meeting.topics.map((t) => t.id));
   // A decision whose topic was deleted falls back to the meeting as a whole, as on the screen.
@@ -147,13 +150,22 @@ export function meetingSummary(meeting: Meeting): string {
     sections.push([
       title,
       ...owed.map((o) =>
-        ['- ' + o.text, o.assignee?.name, o.due ? formatLongDate(o.due) : null].filter(Boolean).join(' — '),
+        // Nobody holding it is worth saying out loud: it is the line someone has to pick up.
+        ['- ' + o.text, o.assignee?.name ?? 'بلا مسؤول', o.due ? formatLongDate(o.due) : null]
+          .filter(Boolean)
+          .join(' — '),
       ),
     ]);
   }
 
   const rules = outcomes.filter((o) => o.kind === 'policy');
-  if (rules.length > 0) sections.push(['السياسات المضافة', ...rules.map((o) => `- ${o.text}`)]);
+  const added = rules.filter((o) => !o.repeals);
+  const struck = rules.filter((o) => o.repeals);
+  if (added.length > 0) sections.push(['السياسات المضافة', ...added.map((o) => `- ${o.text}`)]);
+  if (struck.length > 0) {
+    const ruleText = (o: Outcome) => policies.find((x) => x.id === o.policyId)?.text ?? o.text;
+    sections.push(['السياسات المحذوفة', ...struck.map((o) => `- ${ruleText(o)}`)]);
+  }
 
   return sections.map((lines) => lines.join('\n')).join('\n\n');
 }

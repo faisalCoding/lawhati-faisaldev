@@ -221,6 +221,7 @@ export function describeWhat(what: ActivityWhat, n = 1, tasks = 1): string {
     case 'policy/remove':
       return `حذف بند ${q(what.policy)}`;
     case 'outcome/policy':
+      if (what.repealed) return `إلغاء سياسة بـ ${q(what.text)} من ${q(what.meeting)}`;
       return what.added
         ? `إقرار ${q(what.text)} سياسةً من ${q(what.meeting)}`
         : `تعديل سياسة بـ ${q(what.text)} من ${q(what.meeting)}`;

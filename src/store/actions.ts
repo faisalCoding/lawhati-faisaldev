@@ -1,3 +1,4 @@
+import { parseISODate } from '../lib/dates';
 import { normalizeShareCode, makeShareCode, uid } from '../lib/ids';
 import { createBoardFromTemplate, createWelcomeBoard, newCard } from '../lib/templates';
 import { currentActor, loadActor } from '../members/actor';
@@ -235,6 +236,31 @@ export function policyFromOutcome(
   });
 
   return policyId;
+}
+
+/**
+ * Files a meeting's decision to stop applying a standing rule.
+ *
+ * The rule is repealed, not deleted: it leaves the living policies but keeps its record, so «when
+ * did this stop, and who said so» still has an answer. The decision points at it, marked as the
+ * one that struck it out — the rule alone cannot say which meeting did. Its date, when it has
+ * one, is when the rule stops applying; without one it stops now.
+ */
+export function repealFromOutcome(boardId: string, meetingId: string, outcomeId: string, policyId: string): boolean {
+  const board = store.get().boards[boardId]?.board;
+  const outcome = board?.meetings?.find((m) => m.id === meetingId)?.outcomes?.find((o) => o.id === outcomeId);
+  const policy = board?.policies?.find((x) => x.id === policyId);
+  if (!board || !outcome || outcome.policyId || !policy || policy.repealedAt) return false;
+
+  batch(() => {
+    dispatch(boardId, { type: 'outcome/update', meetingId, outcomeId, patch: { policyId, repeals: true } });
+    dispatch(boardId, {
+      type: 'policy/repeal',
+      policyId,
+      ...(outcome.due ? { since: parseISODate(outcome.due).getTime() } : {}),
+    });
+  });
+  return true;
 }
 
 /**
