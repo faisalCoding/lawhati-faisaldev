@@ -10,7 +10,7 @@ import { inColumn, isHeld, livingClauses, movedProgress } from '../../lib/meetin
 import { pluralPolicies, pluralSubtopics, pluralTopics } from '../../lib/text';
 import { colors, LIST_GAP, LIST_WIDTH } from '../../lib/theme';
 import type { Board, BoardColumn, BoardColumnKind, Meeting, PolicyTopic } from '../../shared/types';
-import { dispatch, startMeeting } from '../../store/actions';
+import { dispatch, moveColumnWithinKind, startMeeting } from '../../store/actions';
 import type { ViewRef } from './CardFace';
 import { CARD_GAP, CARDS_PADDING_H, CARDS_PADDING_TOP, LONG_PRESS_MS, type BoardApi } from './boardApi';
 import { runTapTarget } from './tapTargets';
@@ -36,6 +36,7 @@ export function RecordColumn({
   maxHeight,
   api,
   dragging,
+  collapsed,
   dragItemId,
   targeted,
   placeholderIndex,
@@ -43,13 +44,16 @@ export function RecordColumn({
 }: {
   board: Board;
   column: BoardColumn;
+  /** Its place among the columns of its own kind: it moves within its kind's zone and no further. */
   index: number;
-  /** How many columns there are, for the move actions. */
+  /** How many columns of its kind there are, for the move actions. */
   count: number;
   maxHeight: number;
   api: BoardApi;
   /** Something is being dragged on the board: the column must not scroll under it. */
   dragging: boolean;
+  /** This column is the one being dragged: it stays mounted (it owns the gesture) but takes no space. */
+  collapsed: boolean;
   /** The record being dragged: it stays mounted (it owns the gesture) but takes no space. */
   dragItemId: string | null;
   /** This whole column is where the record would land, with no slot to show for it. */
@@ -64,6 +68,38 @@ export function RecordColumn({
 
   const siblings = (board.columns ?? []).filter((c) => c.kind === column.kind && c.id !== column.id);
   const columns = board.columns ?? [];
+
+  // Long-press the title to move the column among the others of its kind, as a task list is moved.
+  // Alone in its kind there is nowhere to go, so there is nothing to pick up.
+  const columnId = column.id;
+  const reorderable = siblings.length > 0;
+  const { activeId, tx, ty, startColumnDrag, moveColumnDrag, endColumnDrag } = api;
+  const headerGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(reorderable)
+        .activateAfterLongPress(LONG_PRESS_MS)
+        .onStart((e) => {
+          'worklet';
+          if (activeId.value !== '') return;
+          activeId.set(`column:${columnId}`);
+          tx.set(0);
+          ty.set(0);
+          scheduleOnRN(startColumnDrag, columnId, e.x, e.y);
+        })
+        .onUpdate((e) => {
+          'worklet';
+          if (activeId.value !== `column:${columnId}`) return;
+          tx.set(e.translationX);
+          ty.set(e.translationY);
+          scheduleOnRN(moveColumnDrag, e.translationX, e.translationY);
+        })
+        .onFinalize(() => {
+          'worklet';
+          if (activeId.value === `column:${columnId}`) scheduleOnRN(endColumnDrag);
+        }),
+    [columnId, reorderable, activeId, tx, ty, startColumnDrag, moveColumnDrag, endColumnDrag],
+  );
   const items =
     column.kind === 'meetings'
       ? inColumn(board.meetings ?? [], column, columns)
@@ -85,7 +121,7 @@ export function RecordColumn({
       label: 'نقل إلى اليمين',
       icon: 'chevron-right',
       onPress: () => {
-        dispatch(board.id, { type: 'column/move', columnId: column.id, toIndex: index - 1 });
+        moveColumnWithinKind(board.id, column.id, index - 1);
         setSheet(null);
       },
     });
@@ -95,7 +131,7 @@ export function RecordColumn({
       label: 'نقل إلى اليسار',
       icon: 'chevron-left',
       onPress: () => {
-        dispatch(board.id, { type: 'column/move', columnId: column.id, toIndex: index + 1 });
+        moveColumnWithinKind(board.id, column.id, index + 1);
         setSheet(null);
       },
     });
@@ -159,16 +195,29 @@ export function RecordColumn({
   if (placeholderIndex >= shown) cards.push(placeholder);
 
   return (
-    <View style={[styles.column, { maxHeight }]}>
+    <View
+      style={[styles.column, { maxHeight }, collapsed && styles.collapsed]}
+      onLayout={(e) => api.reportColumn(column.id, e.nativeEvent.layout)}
+    >
       <View style={styles.header}>
-        <View style={styles.titleBox}>
-          <Icon name={column.kind === 'meetings' ? 'calendar' : 'book'} size={15} color={colors.textSubtle} />
-          <Txt style={styles.title} numberOfLines={2}>
-            {column.title}
-          </Txt>
-          <View style={styles.count}>
-            <Txt style={styles.countText}>{items.length}</Txt>
-          </View>
+        {/* Measured from outside the GestureDetector: on the web it adds a wrapper element. */}
+        <View style={styles.grabArea} onLayout={(e) => api.reportGrabArea(column.id, e.nativeEvent.layout)}>
+          {/* manipulation, not the detector's default none: a finger on the title still scrolls the board. */}
+          <GestureDetector gesture={headerGesture} touchAction="manipulation">
+            <View
+              collapsable={false}
+              style={styles.titleBox}
+              accessibilityHint={reorderable ? 'اضغط مطوّلًا واسحب لنقل العمود بين أعمدة نوعه' : undefined}
+            >
+              <Icon name={column.kind === 'meetings' ? 'calendar' : 'book'} size={15} color={colors.textSubtle} />
+              <Txt style={styles.title} numberOfLines={2}>
+                {column.title}
+              </Txt>
+              <View style={styles.count}>
+                <Txt style={styles.countText}>{items.length}</Txt>
+              </View>
+            </View>
+          </GestureDetector>
         </View>
         <IconButton name="more" label="خيارات العمود" size={20} onPress={() => setSheet('menu')} />
       </View>
@@ -447,6 +496,48 @@ function DraggableRecord({
 }
 
 /** The card that follows the finger while a record is being dragged. */
+/** A still copy of a meetings or policies column, drawn under the finger while it is dragged. */
+export function RecordColumnPreview({
+  board,
+  column,
+  maxHeight,
+}: {
+  board: Board;
+  column: BoardColumn;
+  maxHeight: number;
+}) {
+  const columns = board.columns ?? [];
+  const items =
+    column.kind === 'meetings'
+      ? inColumn(board.meetings ?? [], column, columns)
+      : inColumn(board.policyTopics ?? [], column, columns);
+  return (
+    <View style={[styles.preview, { maxHeight }]}>
+      <View style={styles.header}>
+        <View style={styles.titleBox}>
+          <Icon name={column.kind === 'meetings' ? 'calendar' : 'book'} size={15} color={colors.textSubtle} />
+          <Txt style={styles.title} numberOfLines={2}>
+            {column.title}
+          </Txt>
+          <View style={styles.count}>
+            <Txt style={styles.countText}>{items.length}</Txt>
+          </View>
+        </View>
+        <View style={styles.previewMore}>
+          <Icon name="more" size={20} color={colors.textSubtle} />
+        </View>
+      </View>
+      <View style={styles.cardsContent}>
+        {items.map((item) => (
+          <View key={item.id} style={styles.recordWrap}>
+            <RecordCardPreview board={board} kind={column.kind} itemId={item.id} />
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export function RecordCardPreview({
   board,
   kind,
@@ -717,7 +808,18 @@ const styles = StyleSheet.create({
     paddingRight: 12,
     paddingLeft: 4,
   },
+  grabArea: { flex: 1 },
   titleBox: { flex: 1, flexDirection: 'row-reverse', alignItems: 'center', gap: 6 },
+  collapsed: { width: 0, marginHorizontal: 0, opacity: 0, overflow: 'hidden' },
+  // Drawn in the overlay, which is not mirrored: no scaleX here, unlike the column it copies.
+  preview: {
+    width: '100%',
+    backgroundColor: colors.list,
+    borderRadius: 14,
+    overflow: 'hidden',
+    boxShadow: '0px 12px 28px rgba(9,30,66,0.35)',
+  },
+  previewMore: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   title: { flex: 1, fontSize: 14, fontWeight: '700' },
   count: { paddingHorizontal: 7, paddingVertical: 1, borderRadius: 8, backgroundColor: colors.surface },
   countText: { fontSize: 11.5, color: colors.textSubtle, fontWeight: '700' },

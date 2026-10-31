@@ -1,6 +1,6 @@
 import { formatLongDate, todayISO } from './dates';
 import { ordinal } from './text';
-import type { Board, BoardColumn, Meeting, Outcome, Policy } from '../shared/types';
+import type { Board, BoardColumn, Meeting, OpInput, Outcome, Policy } from '../shared/types';
 
 // What a meeting decided and never moved on, and is therefore owed an answer at the next one.
 //
@@ -36,6 +36,71 @@ export function inColumn<T extends { columnId?: string | null }>(
  * A repealed rule keeps its record and leaves the document: what a policy used to say is history,
  * and history is read in the rule's own log, not mistaken for the rule.
  */
+/**
+ * The record columns in the order the board shows them: all the meetings columns, then all the
+ * policies columns, each kind in its own order.
+ *
+ * The board reads in zones — the work on the right, the meetings in the middle, the rules on the
+ * left — so a column sits in its kind's zone wherever it is in the stored list. Grouping here, on
+ * the way out, rather than reordering what is stored, means no board needs anything done to it.
+ */
+export function zonedColumns(columns: readonly BoardColumn[]): BoardColumn[] {
+  return [...columns.filter((c) => c.kind === 'meetings'), ...columns.filter((c) => c.kind === 'policies')];
+}
+
+/**
+ * The index `column/move` needs for a column to land at `at` among the others of its kind, or null
+ * when that is where it already stands or it has no others to move among.
+ *
+ * Its place is counted among its own kind only. The stored list can hold the kinds interleaved,
+ * and a move that changes nothing a person can see should not reach the board as a change.
+ * `column/move` splices the column out and back in, so the index counts the list without it.
+ */
+export function kindMoveIndex(columns: readonly BoardColumn[], columnId: string, at: number): number | null {
+  const column = columns.find((c) => c.id === columnId);
+  if (!column) return null;
+  const kin = columns.filter((c) => c.kind === column.kind);
+  const others = kin.filter((c) => c.id !== columnId);
+  const target = Math.max(0, Math.min(at, others.length));
+  if (others.length === 0 || target === kin.indexOf(column)) return null;
+  const rest = columns.filter((c) => c.id !== columnId);
+  return target === others.length ? rest.indexOf(others[others.length - 1]) + 1 : rest.indexOf(others[target]);
+}
+
+/**
+ * What moving a meetings or policies column to `at` among its own kind takes.
+ *
+ * Whatever was never filed into a column is read as the first column's. A move that changes which
+ * column comes first would carry all of it across with nobody having asked — a year of meetings
+ * jumping columns because one was dragged. So such a move first files it where it already shows,
+ * and only then moves the column. That happens once per kind: afterwards everything is filed, and
+ * no move carries anything anywhere.
+ */
+export function columnMoveOps(board: Board, columnId: string, at: number): OpInput[] {
+  const columns = board.columns ?? [];
+  const column = columns.find((c) => c.id === columnId);
+  const toIndex = kindMoveIndex(columns, columnId, at);
+  if (!column || toIndex === null) return [];
+
+  const kin = columns.filter((c) => c.kind === column.kind);
+  const firstNow = kin[0];
+  const firstAfter = at <= 0 ? column : kin.filter((c) => c.id !== columnId)[0];
+  const ops: OpInput[] = [];
+  if (firstNow.id !== firstAfter.id) {
+    if (column.kind === 'meetings') {
+      for (const m of board.meetings ?? []) {
+        if (!m.columnId) ops.push({ type: 'meeting/update', meetingId: m.id, patch: { columnId: firstNow.id } });
+      }
+    } else {
+      for (const t of board.policyTopics ?? []) {
+        if (!t.columnId) ops.push({ type: 'topic/updatePolicy', topicId: t.id, patch: { columnId: firstNow.id } });
+      }
+    }
+  }
+  ops.push({ type: 'column/move', columnId, toIndex });
+  return ops;
+}
+
 export function livingClauses(board: Board, topicId: string, subtopicId?: string | null): Policy[] {
   return (board.policies ?? []).filter(
     (p) =>

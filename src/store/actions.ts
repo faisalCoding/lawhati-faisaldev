@@ -1,4 +1,5 @@
 import { parseISODate } from '../lib/dates';
+import { columnMoveOps } from '../lib/meetings';
 import { normalizeShareCode, makeShareCode, uid } from '../lib/ids';
 import { createBoardFromTemplate, createWelcomeBoard, newCard } from '../lib/templates';
 import { currentActor, loadActor } from '../members/actor';
@@ -236,6 +237,13 @@ export function policyFromOutcome(
   });
 
   return policyId;
+}
+
+/** Moves a meetings or policies column among its own kind (see `columnMoveOps`), as one step. */
+export function moveColumnWithinKind(boardId: string, columnId: string, at: number) {
+  const board = store.get().boards[boardId]?.board;
+  const ops = board ? columnMoveOps(board, columnId, at) : [];
+  if (ops.length > 0) batch(() => ops.forEach((op) => dispatch(boardId, op)));
 }
 
 /**

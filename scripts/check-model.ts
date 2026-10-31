@@ -3,7 +3,18 @@
 // project has no test runner, and this needs none — `npm run check:model`, plain assertions, no
 // framework to keep working.
 
-import { hasMoved, isHeld, meetingSummary, movedProgress, needsMoving, stuckBefore } from '../src/lib/meetings';
+import {
+  columnMoveOps,
+  hasMoved,
+  inColumn,
+  isHeld,
+  kindMoveIndex,
+  meetingSummary,
+  movedProgress,
+  needsMoving,
+  stuckBefore,
+  zonedColumns,
+} from '../src/lib/meetings';
 import { subjectHistory } from '../src/lib/subjects';
 import { stillApplies, undoOf } from '../src/shared/activity';
 import { applyOp } from '../src/shared/reducer';
@@ -720,6 +731,51 @@ ok('ولا تُعدّ في المضافة', repealBlocks.some((b) => b[0] === '�
 ok('وبلا السياسات يبقى نصّ التوصية', meetingSummary(repealMeeting).includes('- حذف منع الجوال'));
 
 ok('مهمة بلا مسؤول تقول ذلك', meetingSummary(m({ outcomes: [open({ kind: 'task', text: 'تجهيز القاعة', due: '2026-10-27' })] })).includes('- تجهيز القاعة — بلا مسؤول — الثلاثاء 27 أكتوبر 2026'));
+
+// ── مناطق الأعمدة: الاجتماعات في الوسط، والسياسات يسارًا ───────────────────────
+const col = (id: string, kind: BoardColumn['kind']): BoardColumn => ({ id, title: id, kind });
+const ids = (cs: readonly BoardColumn[]) => cs.map((c) => c.id).join(',');
+const interleaved = [col('M1', 'meetings'), col('P1', 'policies'), col('M2', 'meetings'), col('P2', 'policies')];
+ok('الاجتماعات أوّلًا ثم السياسات، مهما كان ترتيبها المخزَّن', ids(zonedColumns(interleaved)) === 'M1,M2,P1,P2');
+ok('وكلّ نوع على ترتيبه', ids(zonedColumns([col('P2', 'policies'), col('M2', 'meetings'), col('P1', 'policies'), col('M1', 'meetings')])) === 'M2,M1,P2,P1');
+
+const zoneAfter = (cs: BoardColumn[], id: string, at: number) => {
+  const to = kindMoveIndex(cs, id, at);
+  return to === null ? null : ids(zonedColumns(applyOp({ ...board(), columns: cs }, op({ type: 'column/move', columnId: id, toIndex: to })).columns ?? []));
+};
+ok('عمود إلى أوّل نوعه', zoneAfter(interleaved, 'M2', 0) === 'M2,M1,P1,P2');
+ok('وأوّل نوعه إلى آخره', zoneAfter(interleaved, 'M1', 1) === 'M2,M1,P1,P2');
+ok('والسياسات بينها كذلك', zoneAfter(interleaved, 'P1', 1) === 'M1,M2,P2,P1');
+ok('ولا يعبر عمودٌ إلى منطقة غير نوعه مهما بعُد', zoneAfter(interleaved, 'M1', 9) === 'M2,M1,P1,P2');
+ok('وما لا يغيّر شيئًا مرئيًّا لا يصل إلى اللوحة', kindMoveIndex(interleaved, 'M2', 1) === null);
+ok('وعمود وحيد في نوعه لا مكان له يُنقل إليه', kindMoveIndex([col('M1', 'meetings'), col('P1', 'policies')], 'M1', 1) === null);
+
+// ما لم يُودَع في عمود يُقرأ تابعًا لأوّل عمود من نوعه — فلا يحمله السحب معه
+const unfiled = (cs: BoardColumn[]): Board => ({
+  ...board(),
+  columns: cs,
+  meetings: [m({ id: 'old1' }), m({ id: 'old2' }), m({ id: 'filed', columnId: 'M2' })],
+  policyTopics: [{ id: 'T0', title: 'قديم', subtopics: [] }],
+});
+const run = (b: Board, ops: ReturnType<typeof columnMoveOps>) => ops.reduce((x, o) => applyOp(x, op(o)), b);
+const twoM = [col('M1', 'meetings'), col('M2', 'meetings')];
+const before = unfiled(twoM);
+const firstMoves = columnMoveOps(before, 'M1', 1);
+const afterMove = run(before, firstMoves);
+const inM1 = inColumn(afterMove.meetings ?? [], col('M1', 'meetings'), afterMove.columns ?? []).map((x) => x.id).join(',');
+ok('تغيُّر أوّل عمود يُودِع غير المُودَع حيث يظهر أوّلًا', firstMoves.filter((o) => o.type === 'meeting/update').length === 2);
+ok('فيبقى القديم في عموده بعد السحب', inM1 === 'old1,old2');
+ok('والعمود انتقل فعلًا', ids(zonedColumns(afterMove.columns ?? [])) === 'M2,M1');
+ok('والمُودَع أصلًا لا يُمسّ', (afterMove.meetings ?? []).find((x) => x.id === 'filed')?.columnId === 'M2');
+
+const threeM = [col('M1', 'meetings'), col('M2', 'meetings'), col('M3', 'meetings')];
+const middleOnly = columnMoveOps(unfiled(threeM), 'M3', 1);
+ok('ونقلٌ لا يمسّ أوّل عمود لا يُودِع شيئًا', middleOnly.length === 1 && middleOnly[0].type === 'column/move');
+ok('ولا السياسات حين يتحرّك عمود اجتماعات', !firstMoves.some((o) => o.type === 'topic/updatePolicy'));
+
+const twoP = [col('P1', 'policies'), col('P2', 'policies')];
+const policyMove = run(unfiled(twoP), columnMoveOps(unfiled(twoP), 'P2', 0));
+ok('والموضوع القديم يبقى في عمود سياساته', (policyMove.policyTopics ?? [])[0].columnId === 'P1');
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);

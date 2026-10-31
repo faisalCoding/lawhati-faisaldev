@@ -79,6 +79,13 @@ export interface BoardApi {
   startListDrag: (listId: string, x: number, y: number) => void;
   moveListDrag: (tx: number, ty: number) => void;
   endListDrag: () => void;
+  /**
+   * Picks a meetings or policies column up by its title. It moves among the columns of its own
+   * kind and no further: each kind keeps its zone of the board.
+   */
+  startColumnDrag: (columnId: string, x: number, y: number) => void;
+  moveColumnDrag: (tx: number, ty: number) => void;
+  endColumnDrag: () => void;
   openCard: (cardId: string) => void;
   /** Opens the board a card is linked to (or joins it, on a phone that doesn't have it). */
   openLink: (link: CardLink) => void;
