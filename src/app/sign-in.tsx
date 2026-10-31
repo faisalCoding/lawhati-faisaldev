@@ -183,6 +183,8 @@ export default function SignInScreen() {
             returnKeyType={newAccount ? 'next' : 'go'}
             style={styles.field}
           />
+          {/* The site's rule for accounts in the app, said before it is broken rather than after. */}
+          {newAccount ? <Txt style={styles.hint}>8 أحرف على الأقل، فيها حرف إنجليزي كبير وحرف صغير ورقم.</Txt> : null}
           {newAccount ? (
             <Input
               value={confirmation}
@@ -239,5 +241,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   field: { fontSize: 16, textAlign: 'left', writingDirection: 'ltr' },
+  hint: { fontSize: 12.5, color: colors.textFaint, textAlign: 'right', marginTop: -8 },
   error: { fontSize: 14, color: colors.danger, textAlign: 'center' },
 });
