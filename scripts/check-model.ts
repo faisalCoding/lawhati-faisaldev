@@ -16,9 +16,10 @@ import {
   zonedColumns,
 } from '../src/lib/meetings';
 import { subjectHistory } from '../src/lib/subjects';
+import { boardTasksText } from '../src/lib/tasksText';
 import { stillApplies, undoOf } from '../src/shared/activity';
 import { applyOp } from '../src/shared/reducer';
-import type { AgendaSubject, Board, BoardColumn, Meeting, MeetingTopic, Outcome, Op, Policy } from '../src/shared/types';
+import type { AgendaSubject, Board, BoardColumn, Card, Meeting, MeetingTopic, Outcome, Op, Policy } from '../src/shared/types';
 
 const board = (): Board => ({
   id: 'b', title: 'لوحة', color: '#000', icon: 'grid',
@@ -798,6 +799,51 @@ roundTrip(blueColumn, op({ type: 'column/update', columnId: 'C', patch: { color:
 const renamed = applyOp(blueColumn, op({ type: 'column/update', columnId: 'C', patch: { title: 'اجتماعات الإدارة' } }));
 ok('وإعادة التسمية ما زالت تعمل ولا تمسّ اللون', renamed.columns?.[0].title === 'اجتماعات الإدارة' && renamed.columns?.[0].color === '#CCE0FF');
 roundTrip(blueColumn, op({ type: 'column/update', columnId: 'C', patch: { title: 'اجتماعات الإدارة' } }), 'إعادة تسمية عمود ملوّن');
+
+// ── نسخ مهام اللوحة ─────────────────────────────────────────────────────────
+const taskCard = (id: string, x: Partial<Card>): Card =>
+  ({ id, title: id, description: '', labelIds: [], due: null, checklist: [], cover: null, createdAt: 1, ...x }) as Card;
+const tasksBoard: Board = {
+  ...board(),
+  title: 'لوحة الفريق',
+  lists: [
+    { id: 'L1', title: 'للتنفيذ', cardIds: ['c1', 'c2', 'cDone'], wipLimit: null },
+    { id: 'L2', title: 'قيد العمل', cardIds: ['c3'], wipLimit: null },
+    { id: 'L3', title: 'مكتمل', cardIds: ['c4'], wipLimit: null },
+  ],
+  cards: {
+    c1: taskCard('c1', {
+      title: 'تجهيز القاعة',
+      assignees: [{ id: '1', name: 'فيصل' }, { id: '2', name: 'عزام' }],
+      due: '2026-11-03',
+      checklist: [
+        { id: 'i1', text: 'حجز المكان', done: false, assignee: { id: '2', name: 'عزام' }, due: '2026-11-02' },
+        { id: 'i2', text: 'طباعة اللافتة', done: true },
+        { id: 'i3', text: 'إرسال الدعوات', done: false },
+      ],
+    }),
+    c2: taskCard('c2', { title: 'مراجعة الميزانية', due: '2026-10-27' }),
+    cDone: taskCard('cDone', { title: 'مهمة منجزة', dueDone: true }),
+    c3: taskCard('c3', { title: 'رحلة الأسبوع', assignees: [{ id: '3', name: 'البراء' }] }),
+    c4: taskCard('c4', { title: 'في قائمة المكتمل' }),
+  },
+};
+const tasks = boardTasksText(tasksBoard, '2026-11-01');
+const tasksBlocks = tasks.split('\n\n').map((b) => b.split('\n'));
+
+ok('يبدأ باسم اللوحة وتاريخ النسخ', tasks.startsWith('مهام «لوحة الفريق» — الأحد 1 نوفمبر 2026'));
+ok('البطاقة بمسؤوليها وموعدها', tasks.includes('- تجهيز القاعة — فيصل، عزام — الثلاثاء 3 نوفمبر 2026'));
+ok('ومهامها تحتها بمسؤولها وموعدها', tasks.includes('   · حجز المكان — عزام — الاثنين 2 نوفمبر 2026'));
+ok('وما لا مسؤول له ولا موعد يقول ذلك', tasks.includes('   · إرسال الدعوات — بلا مسؤول — بلا موعد'));
+ok('والموعد الفائت يُعلَّم متأخّرًا', tasks.includes('- مراجعة الميزانية — بلا مسؤول — الثلاثاء 27 أكتوبر 2026 (متأخرة)'));
+ok('وكلّ قائمة في قسمها بترتيب اللوحة', tasksBlocks[1][0] === 'للتنفيذ' && tasksBlocks[2][0] === 'قيد العمل' && tasksBlocks[2][1] === '- رحلة الأسبوع — البراء — بلا موعد');
+ok('والمهمة المنجزة داخل البطاقة لا تظهر', !tasks.includes('طباعة اللافتة'));
+ok('ولا البطاقة المنجزة', !tasks.includes('مهمة منجزة'));
+ok('ولا ما في قائمة «مكتمل»', !tasks.includes('في قائمة المكتمل') && !tasksBlocks.some((b) => b[0] === 'مكتمل'));
+ok('ولوحة بلا مهام مفتوحة تقول ذلك', boardTasksText({ ...board(), title: 'فارغة' }, '2026-11-01') === 'مهام «فارغة» — الأحد 1 نوفمبر 2026\n\nلا مهام مفتوحة.');
+// قائمة واحدة لا «مكتمل» فيها، ولو كان اسمها «مكتمل»: قاعدة التذكيرات نفسها
+const lonely: Board = { ...board(), title: 'وحيدة', lists: [{ id: 'X', title: 'مكتمل', cardIds: ['k'], wipLimit: null }], cards: { k: taskCard('k', { title: 'ما زالت مفتوحة' }) } };
+ok('وقائمة وحيدة اسمها «مكتمل» ليست قائمة المنجز', boardTasksText(lonely, '2026-11-01').includes('- ما زالت مفتوحة — بلا مسؤول — بلا موعد'));
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);

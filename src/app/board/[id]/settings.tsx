@@ -15,6 +15,7 @@ import { ConfirmForm } from '../../../components/ui/Sheet';
 import { Txt } from '../../../components/ui/Txt';
 import { describeStep } from '../../../lib/buttonSteps';
 import { inviteLink } from '../../../lib/invite';
+import { boardTasksText } from '../../../lib/tasksText';
 import { goBack } from '../../../lib/nav';
 import { syncErrorMessage } from '../../../lib/syncErrors';
 import { BOARD_COLORS, colors } from '../../../lib/theme';
@@ -61,12 +62,19 @@ export default function BoardSettingsScreen() {
   const [shareError, setShareError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<'delete' | 'unlink' | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedTasks, setCopiedTasks] = useState(false);
 
   useEffect(() => {
     if (!copied) return;
     const t = setTimeout(() => setCopied(false), 1800);
     return () => clearTimeout(t);
   }, [copied]);
+
+  useEffect(() => {
+    if (!copiedTasks) return;
+    const t = setTimeout(() => setCopiedTasks(false), 1800);
+    return () => clearTimeout(t);
+  }, [copiedTasks]);
 
   if (!entry) {
     return (
@@ -136,6 +144,21 @@ export default function BoardSettingsScreen() {
               </Pressable>
             ))}
           </View>
+        </Section>
+
+        <Section title="قائمة المهام" icon="copy">
+          <Txt style={styles.muted}>
+            كل المهام التي لم تُنجز، قائمةً قائمة، بموعد كلّ منها والمسؤول عنها، في نصّ واحد تلصقه حيث يتحدّث فريقك.
+          </Txt>
+          <Button
+            title={copiedTasks ? 'نُسخت قائمة المهام' : 'نسخ قائمة المهام'}
+            icon={copiedTasks ? 'check' : 'copy'}
+            variant="secondary"
+            onPress={async () => {
+              await Clipboard.setStringAsync(boardTasksText(board));
+              setCopiedTasks(true);
+            }}
+          />
         </Section>
 
         <Section title="الإضافات (Power-Ups)" icon="puzzle">
