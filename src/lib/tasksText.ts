@@ -1,5 +1,5 @@
 import { isDoneList } from '../notifications/plan';
-import { isCardDone } from '../shared/cards';
+import { isCardDone, itemAssignees, ownerNames } from '../shared/cards';
 import type { Board } from '../shared/types';
 import { formatLongDate, todayISO } from './dates';
 
@@ -25,11 +25,11 @@ export function boardTasksText(board: Board, today: string = todayISO()): string
     for (const id of list.cardIds) {
       const card = board.cards[id];
       if (!card || isCardDone(card)) continue;
-      const owners = (card.assignees ?? []).map((a) => a.name).join('، ') || 'بلا مسؤول';
+      const owners = ownerNames(card.assignees ?? []) ?? 'بلا مسؤول';
       lines.push(`- ${card.title} — ${owners} — ${when(card.due)}`);
       for (const item of card.checklist) {
         if (item.done) continue;
-        lines.push(`   · ${item.text} — ${item.assignee?.name ?? 'بلا مسؤول'} — ${when(item.due)}`);
+        lines.push(`   · ${item.text} — ${ownerNames(itemAssignees(item)) ?? 'بلا مسؤول'} — ${when(item.due)}`);
       }
     }
     if (lines.length > 0) sections.push([list.title, ...lines].join('\n'));

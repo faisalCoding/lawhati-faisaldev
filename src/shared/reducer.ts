@@ -17,6 +17,7 @@ import {
   same,
   TOPIC_FIELDS,
 } from './activity';
+import { withAssignees } from './cards';
 import type { Board, Card, List, Meeting, MeetingTopic, Op, Policy, PolicyEvent, PolicyTopic } from './types';
 
 // Pure, deterministic board reducer. The app applies operations optimistically and
@@ -231,7 +232,8 @@ function reduce(board: Board, op: Op): Board {
 
     case 'check/update':
       return updateCard(board, op.cardId, (c) => {
-        const patch = pick(op.patch, CHECK_FIELDS);
+        // Who holds it is two fields, one fact: the list, and the one person older versions read.
+        const patch = withAssignees(pick(op.patch, CHECK_FIELDS));
         const keys = Object.keys(patch) as (keyof typeof patch)[];
         const item = c.checklist.find((i) => i.id === op.itemId);
         if (!item || keys.every((key) => same(patch[key], checkField(item, key)))) return c;
@@ -333,7 +335,7 @@ function reduce(board: Board, op: Op): Board {
         const outcomes = meeting.outcomes ?? [];
         const index = outcomes.findIndex((o) => o.id === op.outcomeId);
         if (index < 0) return meeting;
-        const patch = pick(op.patch, OUTCOME_FIELDS);
+        const patch = withAssignees(pick(op.patch, OUTCOME_FIELDS));
         const keys = Object.keys(patch) as (keyof typeof patch)[];
         if (keys.every((key) => same(patch[key], outcomeField(outcomes[index], key)))) return meeting;
         const next = outcomes.slice();

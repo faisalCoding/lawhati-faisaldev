@@ -1,4 +1,4 @@
-import { isCardDone } from './cards';
+import { isCardDone, itemAssignees, ownerNames } from './cards';
 import type {
   ActivityEntry,
   ActivityWhat,
@@ -33,7 +33,7 @@ export const BOARD_FIELDS = ['title', 'color', 'icon', 'buttons'] as const;
 export const LIST_FIELDS = ['title', 'wipLimit', 'color'] as const;
 export const COLUMN_FIELDS = ['title', 'color'] as const;
 export const CARD_FIELDS = ['title', 'description', 'due', 'dueDone', 'cover', 'link', 'assignees'] as const;
-export const CHECK_FIELDS = ['text', 'done', 'assignee', 'due'] as const;
+export const CHECK_FIELDS = ['text', 'done', 'assignee', 'assignees', 'due'] as const;
 export const MEETING_FIELDS = ['title', 'date', 'place', 'columnId', 'held'] as const;
 export const TOPIC_FIELDS = ['title', 'notes'] as const;
 export const OUTCOME_FIELDS = [
@@ -41,6 +41,7 @@ export const OUTCOME_FIELDS = [
   'text',
   'topicId',
   'assignee',
+  'assignees',
   'due',
   'cardId',
   'itemId',
@@ -92,6 +93,8 @@ export function outcomeField(outcome: Outcome, key: OutcomeField): unknown {
       return outcome.itemId ?? null;
     case 'policyId':
       return outcome.policyId ?? null;
+    case 'assignees':
+      return itemAssignees(outcome);
     case 'repeals':
       return outcome.repeals ?? false;
     case 'done':
@@ -132,7 +135,11 @@ export function cardField(card: Card, key: CardField): unknown {
 }
 
 export function checkField(item: ChecklistItem, key: CheckField): unknown {
-  return key === 'assignee' ? (item.assignee ?? null) : item[key];
+  if (key === 'assignee') return item.assignee ?? null;
+  // An item from before the list read as the one person it had, so a change is measured against
+  // who was really on it, and an undo puts back exactly that.
+  if (key === 'assignees') return itemAssignees(item);
+  return item[key];
 }
 
 function boardField(board: Board, key: BoardField): unknown {
@@ -267,8 +274,8 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
         return { type: 'outcome/topic', meeting: meeting.title, text: now.text, topic: topic?.title ?? null };
       }
       if (was.text !== now.text) return { type: 'outcome/text', meeting: meeting.title, text: now.text };
-      if ((was.assignee?.id ?? null) !== (now.assignee?.id ?? null)) {
-        return { type: 'outcome/assign', meeting: meeting.title, text: now.text, to: now.assignee?.name ?? null };
+      if (!same(itemAssignees(was).map((a) => a.id), itemAssignees(now).map((a) => a.id))) {
+        return { type: 'outcome/assign', meeting: meeting.title, text: now.text, to: ownerNames(itemAssignees(now)) };
       }
       if ((was.due ?? null) !== (now.due ?? null)) {
         return { type: 'outcome/due', meeting: meeting.title, text: now.text, due: now.due ?? null };
@@ -440,8 +447,8 @@ function whatOf(before: Board, after: Board, op: Op): ActivityWhat | null {
       if (!same(was.due, now.due)) {
         return { type: 'task/due', card: card.title, task: now.text, due: now.due ?? null };
       }
-      if (!same(was.assignee, now.assignee)) {
-        return { type: 'task/assign', card: card.title, task: now.text, to: now.assignee?.name ?? null };
+      if (!same(itemAssignees(was).map((a) => a.id), itemAssignees(now).map((a) => a.id))) {
+        return { type: 'task/assign', card: card.title, task: now.text, to: ownerNames(itemAssignees(now)) };
       }
       if (was.text !== now.text) return { type: 'task/edit', card: card.title, task: now.text, from: was.text };
       return null;

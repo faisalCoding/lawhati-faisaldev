@@ -11,8 +11,8 @@ import type { WebSocket } from 'ws';
 
 import { formatShortDate } from '../src/lib/dates';
 import { pluralCards, pluralTasks } from '../src/lib/text';
-import { isCardDone } from '../src/shared/cards';
-import type { Actor, Board, Card, Op } from '../src/shared/types';
+import { isCardDone, isEveryone, itemAssignees } from '../src/shared/cards';
+import type { Actor, Assignee, Board, Card, Op } from '../src/shared/types';
 import { verifyMember, type MemberInfo } from './members';
 import { pushEnabled, sendPush } from './push';
 import { readStored } from './storage';
@@ -279,8 +279,9 @@ export function describe(op: Op, before: Board, after: Board): { cardId: string;
       const was = findCard(before, op.cardId)?.checklist.find((i) => i.id === op.itemId);
       if (!item) return null;
       if (op.patch.done === true && !was?.done) return { cardId: op.cardId, text: `أُنجزت مهمة: ${item.text}` };
-      if (op.patch.assignee !== undefined && item.assignee && item.assignee.id !== was?.assignee?.id) {
-        return { cardId: op.cardId, text: `أُسندت مهمة «${short(item.text)}» إلى ${item.assignee.name}` };
+      if (op.patch.assignee !== undefined || op.patch.assignees !== undefined) {
+        const added = newPeople(was ? itemAssignees(was) : [], itemAssignees(item));
+        if (added.length) return { cardId: op.cardId, text: `أُسندت مهمة «${short(item.text)}» إلى ${names(added)}` };
       }
       return null;
     }
@@ -294,11 +295,31 @@ function names(people: { name: string }[]): string {
   return people.map((p) => p.name).join(' و');
 }
 
-/** The employees a card, or one of its tasks, is assigned to. */
+/**
+ * The employees a card, or one of its tasks, is assigned to — by name. «الجميع» is not expanded
+ * here: everyone hears once, when it is assigned to them all, and every later edit to it going to
+ * the whole roster would be noise nobody asked for. Those stay with the people named and the
+ * cards' watchers.
+ */
 function assigneeIds(card: Card | undefined): string[] {
   if (!card) return [];
   const ids = (card.assignees ?? []).map((a) => a.id);
-  for (const item of card.checklist) if (item.assignee) ids.push(item.assignee.id);
+  for (const item of card.checklist) for (const a of itemAssignees(item)) ids.push(a.id);
+  return [...new Set(ids)];
+}
+
+/** The people in `now` who were not in `was`. */
+function newPeople(was: Assignee[], now: Assignee[]): Assignee[] {
+  const had = new Set(was.map((a) => a.id));
+  return now.filter((a) => !had.has(a.id));
+}
+
+/**
+ * The members newly given something, with «الجميع» standing for the board's whole roster: a task
+ * assigned to everyone is news to each of them, once, at the moment it is assigned.
+ */
+function recipients(people: Assignee[], board: Board): string[] {
+  const ids = people.flatMap((a) => (isEveryone(a) ? (board.members ?? []).map((m) => m.id) : [a.id]));
   return [...new Set(ids)];
 }
 
@@ -311,27 +332,31 @@ export function newlyAssigned(
   switch (op.type) {
     case 'card/update': {
       if (op.patch.assignees === undefined) return [];
-      const had = new Set((findCard(before, op.cardId)?.assignees ?? []).map((a) => a.id));
-      return (findCard(after, op.cardId)?.assignees ?? [])
-        .filter((a) => !had.has(a.id))
-        .map((a) => ({ memberId: a.id, cardId: op.cardId, task: false, text: 'أُسندت إليك' }));
+      const added = newPeople(findCard(before, op.cardId)?.assignees ?? [], findCard(after, op.cardId)?.assignees ?? []);
+      return recipients(added, after).map((memberId) => ({ memberId, cardId: op.cardId, task: false, text: 'أُسندت إليك' }));
     }
     case 'check/add': {
       const item = findCard(after, op.cardId)?.checklist.find((i) => i.id === op.item.id);
       const existed = findCard(before, op.cardId)?.checklist.some((i) => i.id === op.item.id);
-      if (!item?.assignee || existed) return [];
-      return [
-        { memberId: item.assignee.id, cardId: op.cardId, task: true, text: `أُسندت إليك مهمة: ${short(item.text)}` },
-      ];
+      if (!item || existed) return [];
+      return recipients(itemAssignees(item), after).map((memberId) => ({
+        memberId,
+        cardId: op.cardId,
+        task: true,
+        text: `أُسندت إليك مهمة: ${short(item.text)}`,
+      }));
     }
     case 'check/update': {
-      if (op.patch.assignee === undefined) return [];
+      if (op.patch.assignee === undefined && op.patch.assignees === undefined) return [];
       const was = findCard(before, op.cardId)?.checklist.find((i) => i.id === op.itemId);
       const item = findCard(after, op.cardId)?.checklist.find((i) => i.id === op.itemId);
-      if (!item?.assignee || item.assignee.id === was?.assignee?.id) return [];
-      return [
-        { memberId: item.assignee.id, cardId: op.cardId, task: true, text: `أُسندت إليك مهمة: ${short(item.text)}` },
-      ];
+      if (!item) return [];
+      return recipients(newPeople(was ? itemAssignees(was) : [], itemAssignees(item)), after).map((memberId) => ({
+        memberId,
+        cardId: op.cardId,
+        task: true,
+        text: `أُسندت إليك مهمة: ${short(item.text)}`,
+      }));
     }
     default:
       return [];

@@ -17,6 +17,9 @@ import {
 } from '../src/lib/meetings';
 import { subjectHistory } from '../src/lib/subjects';
 import { boardTasksText } from '../src/lib/tasksText';
+import { monthTitle, monthWeeks } from '../src/lib/dates';
+import { EVERYONE, isAssignedTo, itemAssignees, ownerNames, toggleAssignee, withAssignees } from '../src/shared/cards';
+import { describe as describeForTeam, newlyAssigned } from '../server/team';
 import { stillApplies, undoOf } from '../src/shared/activity';
 import { applyOp } from '../src/shared/reducer';
 import type { AgendaSubject, Board, BoardColumn, Card, Meeting, MeetingTopic, Outcome, Op, Policy } from '../src/shared/types';
@@ -224,7 +227,15 @@ const strip = (b: Board) =>
     cards: Object.fromEntries(
       Object.entries(b.cards).map(([id, c]) => [
         id,
-        { ...c, checklist: c.checklist.map((t) => ({ ...t, assignee: t.assignee ?? null, due: t.due ?? null })) },
+        {
+          ...c,
+          checklist: c.checklist.map((t) => ({
+            ...t,
+            assignee: t.assignee ?? null,
+            assignees: itemAssignees(t),
+            due: t.due ?? null,
+          })),
+        },
       ]),
     ),
     meetings: (b.meetings ?? []).map((m) => ({
@@ -235,6 +246,7 @@ const strip = (b: Board) =>
         ...o,
         topicId: o.topicId ?? null,
         assignee: o.assignee ?? null,
+        assignees: itemAssignees(o),
         due: o.due ?? null,
         cardId: o.cardId ?? null,
         policyId: o.policyId ?? null,
@@ -844,6 +856,76 @@ ok('ولوحة بلا مهام مفتوحة تقول ذلك', boardTasksText({ .
 // قائمة واحدة لا «مكتمل» فيها، ولو كان اسمها «مكتمل»: قاعدة التذكيرات نفسها
 const lonely: Board = { ...board(), title: 'وحيدة', lists: [{ id: 'X', title: 'مكتمل', cardIds: ['k'], wipLimit: null }], cards: { k: taskCard('k', { title: 'ما زالت مفتوحة' }) } };
 ok('وقائمة وحيدة اسمها «مكتمل» ليست قائمة المنجز', boardTasksText(lonely, '2026-11-01').includes('- ما زالت مفتوحة — بلا مسؤول — بلا موعد'));
+
+// ── أكثر من مسؤول، والجميع ───────────────────────────────────────────────────
+const FAISAL = { id: '1', name: 'فيصل' };
+const AZZAM = { id: '2', name: 'عزام' };
+const BARAA = { id: '3', name: 'البراء' };
+const who = (people: readonly { id: string }[]) => people.map((p) => p.id).join(',');
+
+ok('مهمة قديمة بمسؤول واحد تُقرأ قائمةً به', who(itemAssignees({ assignee: AZZAM })) === '2');
+ok('والقائمة تغلب الحقل القديم', who(itemAssignees({ assignee: FAISAL, assignees: [FAISAL, AZZAM] })) === '1,2');
+ok('والقائمة تجعل الحقل القديم أوّلها', withAssignees({ assignees: [FAISAL, AZZAM] }).assignee?.id === '1');
+ok('والقائمة الفارغة تجعله لا أحد', withAssignees({ assignees: [] }).assignee === null);
+ok('والحقل القديم يجعل القائمة إيّاه وحده', who(withAssignees({ assignee: BARAA }).assignees ?? []) === '3');
+ok('اختيار «الجميع» يحلّ محلّ الأسماء', who(toggleAssignee([FAISAL, AZZAM], EVERYONE, true)) === '*');
+ok('وتسمية أحد تستردّها من الجميع', who(toggleAssignee([EVERYONE], FAISAL, true)) === '1');
+ok('وإضافة اسم إلى اسم', who(toggleAssignee([FAISAL], AZZAM, true)) === '1,2');
+ok('وإزالة اسم', who(toggleAssignee([FAISAL, AZZAM], FAISAL, false)) === '2');
+ok('والأسماء سطرًا واحدًا', ownerNames([FAISAL, AZZAM]) === 'فيصل، عزام' && ownerNames([EVERYONE]) === 'الجميع' && ownerNames([]) === null);
+
+const teamBoard: Board = {
+  ...board(),
+  members: [
+    { id: '1', name: 'فيصل', at: 1 },
+    { id: '2', name: 'عزام', at: 1 },
+    { id: '3', name: 'البراء', at: 1 },
+  ],
+  lists: [{ id: 'L', title: 'للتنفيذ', cardIds: ['K'], wipLimit: null }],
+  cards: { K: taskCard('K', { title: 'الرحلة', checklist: [{ id: 't', text: 'حجز الحافلة', done: false }] }) },
+};
+ok('مهمة لـ«الجميع» مسندة إلى كلّ واحد', isAssignedTo({ ...teamBoard.cards.K, checklist: [{ id: 't', text: 'x', done: false, assignees: [EVERYONE] }] }, '7'));
+ok('ومهمة لاسمٍ ليست لغيره', !isAssignedTo({ ...teamBoard.cards.K, assignees: [FAISAL] }, '2'));
+
+const twoOwners = op({ type: 'check/update', cardId: 'K', itemId: 't', patch: { assignees: [FAISAL, AZZAM] } });
+const withTwo = applyOp(teamBoard, twoOwners);
+const itemOf = (b: Board) => b.cards.K.checklist[0];
+ok('المهمة تحمل مسؤوليها الاثنين', who(itemAssignees(itemOf(withTwo))) === '1,2');
+ok('والإصدار القديم يرى أوّلهما', itemOf(withTwo).assignee?.id === '1');
+ok('والنشاط يسمّيهما معًا', (withTwo.activity?.at(-1)?.what as { to?: string }).to === 'فيصل، عزام');
+roundTrip(teamBoard, twoOwners, 'إسناد مهمة إلى اثنين');
+
+// تطبيق قديم مثبَّت يعيد إسناد المهمة بحقله الوحيد: لا تبقى خلفه قائمة قديمة
+const oldApp = applyOp(withTwo, op({ type: 'check/update', cardId: 'K', itemId: 't', patch: { assignee: BARAA } }));
+ok('إسناد من إصدار قديم لا يترك القائمة القديمة', who(itemAssignees(itemOf(oldApp))) === '3');
+
+const allOfThem = applyOp(teamBoard, op({ type: 'check/update', cardId: 'K', itemId: 't', patch: { assignees: [EVERYONE] } }));
+ok('ومهمة للجميع يراها الإصدار القديم «الجميع»', itemOf(allOfThem).assignee?.name === 'الجميع');
+
+const withMeetingOwners = applyOp(withMeeting, op({ type: 'outcome/add', meetingId: 'a', outcome: outcome('ow', 'task', 'تجهيز القاعة') }));
+const ownedOutcome = op({ type: 'outcome/update', meetingId: 'a', outcomeId: 'ow', patch: { assignees: [AZZAM, BARAA], due: '2026-11-10' } });
+const outcomeOwned = applyOp(withMeetingOwners, ownedOutcome);
+const ow = outcomesOf(outcomeOwned).find((o) => o.id === 'ow')!;
+ok('وتوصية الاجتماع تحمل أكثر من مسؤول', who(itemAssignees(ow)) === '2,3' && ow.assignee?.id === '2');
+roundTrip(withMeetingOwners, ownedOutcome, 'إسناد توصية إلى اثنين');
+ok('والملخّص يسمّيهم كلّهم', meetingSummary(outcomeOwned.meetings!.find((x) => x.id === 'a')!).includes('- تجهيز القاعة — عزام، البراء — الثلاثاء 10 نوفمبر 2026'));
+ok('وقائمة المهام تقول «الجميع»', boardTasksText(allOfThem, '2026-11-01').includes('   · حجز الحافلة — الجميع — بلا موعد'));
+
+// الإشعارات على الخادم: كلّ من أُضيف، و«الجميع» تصل إلى سجلّ اللوحة كلّه مرّة واحدة
+const told = (o: Op, before: Board) => newlyAssigned(o, before, applyOp(before, o)).map((a) => a.memberId).sort().join(',');
+ok('يُبلَّغ المسؤولان كلاهما', told(twoOwners, teamBoard) === '1,2');
+ok('ومن أُضيف وحده لا من كان', told(op({ type: 'check/update', cardId: 'K', itemId: 't', patch: { assignees: [FAISAL, AZZAM, BARAA] } }), withTwo) === '3');
+ok('و«الجميع» تبلغ كلّ من في سجلّ اللوحة', told(op({ type: 'check/update', cardId: 'K', itemId: 't', patch: { assignees: [EVERYONE] } }), teamBoard) === '1,2,3');
+ok('وكذلك بطاقة للجميع', told(op({ type: 'card/update', cardId: 'K', patch: { assignees: [EVERYONE] } }), teamBoard) === '1,2,3');
+ok('وسطر المتابع يسمّيهما', describeForTeam(twoOwners, teamBoard, withTwo)?.text === 'أُسندت مهمة «حجز الحافلة» إلى فيصل وعزام');
+
+// ── التقويم ─────────────────────────────────────────────────────────────────
+const november = monthWeeks(2026, 10);
+ok('نوفمبر 2026 يبدأ يوم أحد، في أوّل خانة', november[0][0] === '2026-11-01');
+ok('وينتهي في أسبوعه الخامس', november.length === 5 && november[4][1] === '2026-11-30' && november[4][2] === null);
+ok('وأكتوبر يبدأ يوم خميس بعد أربع خانات فارغة', monthWeeks(2026, 9)[0].join('|') === '||||2026-10-01|2026-10-02|2026-10-03');
+ok('وكلّ أسبوع سبعة أيام', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].every((m) => monthWeeks(2026, m).every((w) => w.length === 7)));
+ok('وعنوان الشهر بالعربية', monthTitle(2026, 10) === 'نوفمبر 2026');
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);

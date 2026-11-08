@@ -10,6 +10,7 @@ import { dispatch } from '../../store/actions';
 import { Button, Chip, IconButton } from '../ui/Buttons';
 import { useModalAutoFocus } from '../ui/Keyboard';
 import { PromptForm } from '../ui/Sheet';
+import { MonthPicker } from '../ui/MonthPicker';
 import { Input, Txt } from '../ui/Txt';
 
 /** What a task listed on a card's face opens: its text to change, or (no task) a field that adds tasks. */
@@ -54,7 +55,7 @@ export function TaskSheet({
         }}
         onCancel={onClose}
       />
-      <TaskDue board={board} cardId={cardId} item={item} />
+      <TaskDueEditor board={board} cardId={cardId} itemId={item.id} />
 
       <Button
         title="حذف المهمة"
@@ -70,15 +71,19 @@ export function TaskSheet({
 }
 
 /**
- * When this one task is due.
+ * When this one task is due — from the board's card face and from inside the card alike.
  *
  * A card often stands for a week of work, and one date on it could only ever be the latest of the
- * tasks inside. Each task carries its own.
+ * tasks inside. Each task carries its own: today, tomorrow, a week out, or any day from the month
+ * picker. The task is read from the board as it is now, not as it was when the sheet opened, so a
+ * date just chosen shows at once.
  */
-function TaskDue({ board, cardId, item }: { board: Board; cardId: string; item: ChecklistItem }) {
+export function TaskDueEditor({ board, cardId, itemId }: { board: Board; cardId: string; itemId: string }) {
   const today = todayISO();
-  const set = (due: string | null) =>
-    dispatch(board.id, { type: 'check/update', cardId, itemId: item.id, patch: { due } });
+  const [custom, setCustom] = useState(false);
+  const item: ChecklistItem | undefined = board.cards[cardId]?.checklist.find((i) => i.id === itemId);
+  if (!item) return null;
+  const set = (due: string | null) => dispatch(board.id, { type: 'check/update', cardId, itemId, patch: { due } });
 
   return (
     <View style={styles.due}>
@@ -96,8 +101,18 @@ function TaskDue({ board, cardId, item }: { board: Board; cardId: string; item: 
         <Chip label="اليوم" selected={item.due === today} onPress={() => set(today)} />
         <Chip label="غدًا" selected={item.due === addDays(today, 1)} onPress={() => set(addDays(today, 1))} />
         <Chip label="بعد أسبوع" selected={item.due === addDays(today, 7)} onPress={() => set(addDays(today, 7))} />
+        <Chip label="تاريخ مخصص" icon="calendar" selected={custom} onPress={() => setCustom((on) => !on)} />
         {item.due ? <Chip label="إزالة الموعد" icon="close" onPress={() => set(null)} /> : null}
       </View>
+      {custom ? (
+        <MonthPicker
+          value={item.due ?? null}
+          onPick={(due) => {
+            set(due);
+            setCustom(false);
+          }}
+        />
+      ) : null}
     </View>
   );
 }

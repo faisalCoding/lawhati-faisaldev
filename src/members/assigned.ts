@@ -1,6 +1,6 @@
 import { normalizeSearch } from '../lib/filter';
-import { isCardDone } from '../shared/cards';
-import type { Board, Card, ChecklistItem, Label, List } from '../shared/types';
+import { isCardDone, isEveryone, itemAssignees } from '../shared/cards';
+import type { Assignee, Board, Card, ChecklistItem, Label, List } from '../shared/types';
 import type { BoardEntry } from '../store/store';
 import type { Member } from './api';
 
@@ -60,8 +60,10 @@ export function findAssigned(
       for (const cardId of list.cardIds) {
         const card = board.cards[cardId];
         if (!card) continue;
-        const mine = card.assignees?.some((a) => a.id === me.id);
-        const items = card.checklist.filter((item) => item.assignee?.id === me.id);
+        // Assigned to everyone is assigned to each of them, me included.
+        const holds = (people: Assignee[]) => people.some((a) => a.id === me.id || isEveryone(a));
+        const mine = holds(card.assignees ?? []);
+        const items = card.checklist.filter((item) => holds(itemAssignees(item)));
         if (!mine && items.length === 0) continue;
         const priority = priorityOf(board, card);
         if (mine) cards.push({ board, list, card, priority });

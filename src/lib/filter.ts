@@ -1,4 +1,4 @@
-import { isAssignedTo, isCardDone } from '../shared/cards';
+import { isAssignedTo, isCardDone, itemAssignees } from '../shared/cards';
 import type { Board, Card } from '../shared/types';
 import { addDays, todayISO } from './dates';
 import { toLatinDigits } from './text';
@@ -63,7 +63,7 @@ function searchText(card: Card, board: Pick<Board, 'labels'>): string {
   for (const a of card.assignees ?? []) parts.push(a.name);
   for (const item of card.checklist) {
     parts.push(item.text);
-    if (item.assignee) parts.push(item.assignee.name);
+    for (const a of itemAssignees(item)) parts.push(a.name);
   }
   return normalizeSearch(parts.join('\n'));
 }

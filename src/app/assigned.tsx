@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Avatar } from '../components/ui/Avatar';
+import { Avatar, AvatarStack } from '../components/ui/Avatar';
 import { Button, Icon } from '../components/ui/Buttons';
 import { CheckCircle } from '../components/ui/CheckCircle';
 import { ModalHeader, Section } from '../components/ui/Layout';
@@ -13,7 +13,7 @@ import { goBack } from '../lib/nav';
 import { colors } from '../lib/theme';
 import { findAssigned, type Found, type Priority } from '../members/assigned';
 import { asAssignee, useMe } from '../members/session';
-import { isCardDone } from '../shared/cards';
+import { isCardDone, itemAssignees } from '../shared/cards';
 import type { ChecklistItem, Label } from '../shared/types';
 import { dispatch } from '../store/actions';
 import { useAppState } from '../store/store';
@@ -229,7 +229,7 @@ function Row({
             >
               <CheckCircle done={item.done} size={20} />
               <Txt style={[styles.taskText, item.done && styles.taskDone]}>{item.text}</Txt>
-              {item.assignee ? <Avatar person={item.assignee} size={22} /> : null}
+              {itemAssignees(item).length > 0 ? <AvatarStack people={itemAssignees(item)} size={22} /> : null}
             </Pressable>
           ))}
         </View>

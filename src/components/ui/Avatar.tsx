@@ -2,7 +2,9 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { useAssigneeName } from '../../members/session';
 import { colors } from '../../lib/theme';
+import { EVERYONE, isEveryone } from '../../shared/cards';
 import type { Assignee } from '../../shared/types';
+import { Icon } from './Icon';
 import { Txt } from './Txt';
 
 // Everyone gets the same color on every device: it is picked from their id.
@@ -49,6 +51,17 @@ export function Avatar({
   style?: StyleProp<ViewStyle>;
 }) {
   const name = useAssigneeName(person);
+  // «الجميع» is everyone at once: a group, not anybody's initials in a colour of their own.
+  if (isEveryone(person)) {
+    return (
+      <View
+        accessibilityLabel={EVERYONE.name}
+        style={[styles.avatar, styles.everyone, { width: size, height: size, borderRadius: size / 2 }, style]}
+      >
+        <Icon name="users" size={Math.round(size * 0.58)} color={colors.primary} />
+      </View>
+    );
+  }
   return (
     <View
       accessibilityLabel={name}
@@ -113,6 +126,7 @@ const styles = StyleSheet.create({
   // Right to left: the first avatar sits on the right and the others tuck in to its left.
   stack: { flexDirection: 'row-reverse', alignItems: 'center' },
   more: { backgroundColor: colors.list },
+  everyone: { backgroundColor: '#E9F2FF' },
   person: { flexDirection: 'row-reverse', alignItems: 'center', gap: 6, flexShrink: 1 },
   personName: { fontSize: 14, flexShrink: 1 },
   moreText: { color: colors.textSubtle, fontWeight: '700', textAlign: 'center' },

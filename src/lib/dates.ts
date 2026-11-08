@@ -36,6 +36,26 @@ export function formatShortDate(iso: string): string {
   return `${date.getDate()} ${MONTHS[date.getMonth()]}${sameYear ? '' : ` ${date.getFullYear()}`}`;
 }
 
+/** «نوفمبر 2026»: the heading of a calendar month. `month` counts from 0, as Date does. */
+export function monthTitle(year: number, month: number): string {
+  return `${MONTHS[month]} ${year}`;
+}
+
+/**
+ * A month as a calendar draws it: weeks of seven days, Sunday first as calendars here begin, each
+ * day as YYYY-MM-DD, and the cells before the 1st and after the last day left null.
+ */
+export function monthWeeks(year: number, month: number): (string | null)[][] {
+  const first = new Date(year, month, 1).getDay();
+  const days = new Date(year, month + 1, 0).getDate();
+  const cells: (string | null)[] = Array.from({ length: first }, () => null);
+  for (let day = 1; day <= days; day++) cells.push(`${year}-${pad(month + 1)}-${pad(day)}`);
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks: (string | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return weeks;
+}
+
 export function formatLongDate(iso: string): string {
   const date = parseISODate(iso);
   return `${WEEKDAYS[date.getDay()]} ${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;

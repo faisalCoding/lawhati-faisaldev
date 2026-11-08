@@ -6,7 +6,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActivityRow } from '../../../../components/board/ActivityRow';
 import { LinkedBoardSection } from '../../../../components/board/LinkedBoardSection';
 import { PeoplePicker } from '../../../../components/board/PeoplePicker';
-import { Avatar, Person } from '../../../../components/ui/Avatar';
+import { AvatarStack, Person } from '../../../../components/ui/Avatar';
+import { TaskDueEditor } from '../../../../components/board/TaskSheet';
+import { MonthPicker } from '../../../../components/ui/MonthPicker';
 import { Button, Chip, Icon, IconButton } from '../../../../components/ui/Buttons';
 import { CheckCircle } from '../../../../components/ui/CheckCircle';
 import { EditableText } from '../../../../components/ui/EditableText';
@@ -23,7 +25,7 @@ import { asAssignee, useMe } from '../../../../members/session';
 import { useWatching } from '../../../../notifications/prefs';
 import { offerReminders } from '../../../../notifications/scheduler';
 import { toggleWatching, useBoardFocus } from '../../../../notifications/team';
-import { isCardDone } from '../../../../shared/cards';
+import { isCardDone, itemAssignees, toggleAssignee, withAssignees } from '../../../../shared/cards';
 import type { Board, Card, ChecklistItem } from '../../../../shared/types';
 import { dispatch } from '../../../../store/actions';
 import { pressButton } from '../../../../store/buttons';
@@ -36,7 +38,8 @@ export default function CardScreen() {
   const shared = useAppState((s) => s.boards[id]?.sync != null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // Choosing people for the card (itemId null) or for one of its tasks.
-  const [picker, setPicker] = useState<{ itemId: string | null } | null>(null);
+  // The screen's one sheet: the card's people (itemId null), a task's people, or (due) a task's date.
+  const [picker, setPicker] = useState<{ itemId: string | null; due?: boolean } | null>(null);
   useBoardFocus(id);
 
   // Keeps showing the card while the sheet closes after it was deleted.
@@ -158,7 +161,12 @@ export default function CardScreen() {
           />
         ) : null}
 
-        <ChecklistSection board={board} card={card} onAssign={(itemId) => setPicker({ itemId })} />
+        <ChecklistSection
+          board={board}
+          card={card}
+          onAssign={(itemId) => setPicker({ itemId })}
+          onDue={(itemId) => setPicker({ itemId, due: true })}
+        />
 
         <Section title="الوصف" icon="description">
           <EditableText
@@ -246,27 +254,31 @@ export default function CardScreen() {
       <Sheet
         visible={picker !== null}
         onClose={() => setPicker(null)}
-        title={picker?.itemId ? 'إسناد المهمة' : 'إسناد البطاقة'}
+        title={picker?.due ? 'موعد المهمة' : picker?.itemId ? 'إسناد المهمة' : 'إسناد البطاقة'}
       >
+        {picker?.due && picker.itemId ? (
+          <View style={styles.dueSheet}>
+            <TaskDueEditor board={board} cardId={card.id} itemId={picker.itemId} />
+          </View>
+        ) : (
+        /* A task takes several people, or everyone, as the card does; the sheet stays open to pick more. */
         <PeoplePicker
           members={board.members ?? []}
-          single={picker?.itemId != null}
+          everyone
           shared={shared}
-          selected={
-            picker?.itemId ? (pickerItem?.assignee ? [pickerItem.assignee.id] : []) : assignees.map((a) => a.id)
-          }
+          selected={(picker?.itemId ? (pickerItem ? itemAssignees(pickerItem) : []) : assignees).map((a) => a.id)}
           onChange={(member, on) => {
-            if (picker?.itemId) {
+            if (!member) return;
+            if (picker?.itemId && pickerItem) {
               dispatch(board.id, {
                 type: 'check/update',
                 cardId: card.id,
                 itemId: picker.itemId,
-                patch: { assignee: member ? asAssignee(member) : null },
+                // Both fields: a sync server not yet updated keeps the one person it knows, at least.
+                patch: withAssignees({ assignees: toggleAssignee(itemAssignees(pickerItem), asAssignee(member), on) }),
               });
-              setPicker(null);
-            } else if (member) {
-              const others = assignees.filter((a) => a.id !== member.id);
-              update({ assignees: on ? [...others, asAssignee(member)] : others });
+            } else if (!picker?.itemId) {
+              update({ assignees: toggleAssignee(assignees, asAssignee(member), on) });
             }
           }}
           onSignIn={() => {
@@ -274,6 +286,7 @@ export default function CardScreen() {
             router.push('/sign-in');
           }}
         />
+        )}
       </Sheet>
     </View>
   );
@@ -333,6 +346,7 @@ function DueDateSection({
   onChange: (due: string | null) => void;
 }) {
   const today = todayISO();
+  const [custom, setCustom] = useState(false);
   const tone = due ? describeDue(due, done) : null;
   return (
     <Section title="تاريخ الاستحقاق" icon="calendar">
@@ -366,13 +380,33 @@ function DueDateSection({
         <Chip label="اليوم" selected={due === today} onPress={() => onChange(today)} />
         <Chip label="غدًا" selected={due === addDays(today, 1)} onPress={() => onChange(addDays(today, 1))} />
         <Chip label="بعد أسبوع" selected={due === addDays(today, 7)} onPress={() => onChange(addDays(today, 7))} />
+        <Chip label="تاريخ مخصص" icon="calendar" selected={custom} onPress={() => setCustom((on) => !on)} />
         {due ? <Chip label="إزالة الموعد" icon="close" onPress={() => onChange(null)} /> : null}
       </View>
+      {custom ? (
+        <MonthPicker
+          value={due}
+          onPick={(picked) => {
+            onChange(picked);
+            setCustom(false);
+          }}
+        />
+      ) : null}
     </Section>
   );
 }
 
-function ChecklistSection({ board, card, onAssign }: { board: Board; card: Card; onAssign: (itemId: string) => void }) {
+function ChecklistSection({
+  board,
+  card,
+  onAssign,
+  onDue,
+}: {
+  board: Board;
+  card: Card;
+  onAssign: (itemId: string) => void;
+  onDue: (itemId: string) => void;
+}) {
   const [text, setText] = useState('');
   const done = card.checklist.filter((i) => i.done).length;
   const total = card.checklist.length;
@@ -426,6 +460,7 @@ function ChecklistSection({ board, card, onAssign }: { board: Board; card: Card;
               dispatch(board.id, { type: 'check/update', cardId: card.id, itemId: item.id, patch: { text } })
             }
           />
+          <ItemDue item={item} onPress={() => onDue(item.id)} />
           <ItemAssignee item={item} onPress={() => onAssign(item.id)} />
           <IconButton
             name="close"
@@ -480,13 +515,39 @@ function TaskText({ item, onCommit }: { item: ChecklistItem; onCommit: (text: st
   );
 }
 
-/** Who does a task: their avatar, or (signed in) a button to choose someone. */
+/**
+ * When a task is due, inside the card: its date, coloured as the board colours one that is close or
+ * late, or a quiet calendar to set it. Each task can have its own, as the board's card face shows.
+ */
+function ItemDue({ item, onPress }: { item: ChecklistItem; onPress: () => void }) {
+  if (!item.due) {
+    return <IconButton name="calendar" label="موعد المهمة" size={18} color={colors.textFaint} onPress={onPress} />;
+  }
+  const { text, tone } = describeDue(item.due, item.done);
+  return (
+    <Pressable onPress={onPress} hitSlop={6} accessibilityRole="button" accessibilityLabel={`موعد المهمة: ${text}`}>
+      <Txt
+        style={[
+          styles.itemDue,
+          tone === 'overdue' && { color: colors.danger },
+          tone === 'soon' && { color: colors.warning },
+          tone === 'done' && { color: colors.success },
+        ]}
+      >
+        {text}
+      </Txt>
+    </Pressable>
+  );
+}
+
+/** Who does a task: their avatars, or (signed in) a button to choose someone. */
 function ItemAssignee({ item, onPress }: { item: ChecklistItem; onPress: () => void }) {
   const me = useMe();
-  if (item.assignee) {
+  const people = itemAssignees(item);
+  if (people.length > 0) {
     return (
-      <Pressable onPress={onPress} hitSlop={6} accessibilityRole="button" accessibilityLabel="المسؤول عن المهمة">
-        <Avatar person={item.assignee} size={26} />
+      <Pressable onPress={onPress} hitSlop={6} accessibilityRole="button" accessibilityLabel="المسؤولون عن المهمة">
+        <AvatarStack people={people} size={26} />
       </Pressable>
     );
   }
@@ -550,6 +611,8 @@ const styles = StyleSheet.create({
   },
   progressFill: { height: '100%', backgroundColor: colors.primary, borderRadius: 4 },
   checkRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 4 },
+  itemDue: { fontSize: 12, color: colors.textSubtle, paddingHorizontal: 4 },
+  dueSheet: { paddingHorizontal: 16, paddingBottom: 16 },
   checkHit: { paddingVertical: 6 },
   checkField: { flex: 1, borderRadius: 10 },
   checkFieldEditing: { backgroundColor: colors.page },

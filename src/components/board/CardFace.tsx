@@ -4,10 +4,10 @@ import { StyleSheet, View } from 'react-native';
 import { describeDistance, describeDue } from '../../lib/dates';
 import { boardProgress } from '../../lib/progress';
 import { colors } from '../../lib/theme';
-import { isCardDone } from '../../shared/cards';
+import { isCardDone, itemAssignees } from '../../shared/cards';
 import type { Card, CardLink, Label, PowerUps } from '../../shared/types';
 import { useBoard } from '../../store/store';
-import { Avatar, AvatarStack } from '../ui/Avatar';
+import { AvatarStack } from '../ui/Avatar';
 import { Icon } from '../ui/Buttons';
 import { CheckCircle } from '../ui/CheckCircle';
 import { Txt } from '../ui/Txt';
@@ -173,7 +173,7 @@ export const CardFace = memo(function CardFace({
                     </Txt>
                   ) : null}
                 </View>
-                {item.assignee ? <Avatar person={item.assignee} size={20} /> : null}
+                {itemAssignees(item).length > 0 ? <AvatarStack people={itemAssignees(item)} size={20} /> : null}
               </View>
             ))}
             <View ref={addTaskRef} collapsable={false} style={styles.addTask}>

@@ -4,6 +4,7 @@ import { normalizeShareCode, makeShareCode, uid } from '../lib/ids';
 import { createBoardFromTemplate, createWelcomeBoard, newCard } from '../lib/templates';
 import { currentActor, loadActor } from '../members/actor';
 import { applyOp } from '../shared/reducer';
+import { itemAssignees } from '../shared/cards';
 import type { Meeting, Op, OpInput, OpMeta } from '../shared/types';
 import { bringOverPreviousAddress } from './previousAddress';
 import { findBoardIdByCode, store } from './store';
@@ -124,7 +125,7 @@ export function cardFromOutcome(boardId: string, meetingId: string, outcomeId: s
 
   const card = newCard(outcome.text, {
     due: outcome.due ?? null,
-    assignees: outcome.assignee ? [outcome.assignee] : [],
+    assignees: itemAssignees(outcome),
     description: `من اجتماع «${meeting?.title ?? ''}»`,
   });
 
@@ -182,7 +183,8 @@ export function checklistFromOutcome(
 
   // Carries its date as well as its owner: a task inside a card has its own, and the outcome
   // is not counted as moved on without one.
-  const item = { id: uid(), text: outcome.text, done: false, assignee: outcome.assignee ?? null, due: outcome.due ?? null };
+  const people = itemAssignees(outcome);
+  const item = { id: uid(), text: outcome.text, done: false, assignees: people, assignee: people[0] ?? null, due: outcome.due ?? null };
 
   // The link first, so the activity names the act rather than the task appearing from nowhere.
   batch(() => {

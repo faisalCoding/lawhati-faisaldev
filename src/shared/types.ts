@@ -22,8 +22,13 @@ export interface ChecklistItem {
   id: string;
   text: string;
   done: boolean;
-  /** Who does this task. Older items lack it. */
+  /** Who does this task: the first of `assignees`, kept for versions before 1.2, which read only it. */
   assignee?: Assignee | null;
+  /**
+   * Everyone who does this task — or `EVERYONE`, for a task that is all of theirs. Absent on items
+   * written before it existed; read it through `itemAssignees`, which falls back to `assignee`.
+   */
+  assignees?: Assignee[];
   /**
    * When it is due, in YYYY-MM-DD form, like a card's.
    *
@@ -134,8 +139,13 @@ export interface Outcome {
   text: string;
   /** The topic it came out of. Null for a decision that belongs to the meeting as a whole. */
   topicId?: string | null;
-  /** `task` and `assignment`: who holds it, with their name kept, as a card's assignee is. */
+  /** `task` and `assignment`: the first of `assignees`, kept for versions before 1.2, which read only it. */
   assignee?: Assignee | null;
+  /**
+   * `task` and `assignment`: everyone who holds it, names kept as a card's are — or `EVERYONE`.
+   * Absent on decisions written before it existed; read it through `itemAssignees`.
+   */
+  assignees?: Assignee[];
   /**
    * When it falls due, starts, or takes effect, in YYYY-MM-DD form.
    *
@@ -495,7 +505,7 @@ export type OpInput =
       type: 'check/update';
       cardId: string;
       itemId: string;
-      patch: Partial<Pick<ChecklistItem, 'text' | 'done' | 'assignee' | 'due'>>;
+      patch: Partial<Pick<ChecklistItem, 'text' | 'done' | 'assignee' | 'assignees' | 'due'>>;
     }
   | { type: 'check/remove'; cardId: string; itemId: string }
   | { type: 'meeting/add'; meeting: Meeting }
@@ -525,6 +535,7 @@ export type OpInput =
           | 'text'
           | 'topicId'
           | 'assignee'
+          | 'assignees'
           | 'due'
           | 'cardId'
           | 'itemId'

@@ -11,6 +11,7 @@ import { hasMoved } from '../../../../lib/meetings';
 import { goBack } from '../../../../lib/nav';
 import { subjectHistory, type SubjectVisit } from '../../../../lib/subjects';
 import { colors } from '../../../../lib/theme';
+import { itemAssignees, ownerNames } from '../../../../shared/cards';
 import type { Board } from '../../../../shared/types';
 import { useBoard } from '../../../../store/store';
 
@@ -111,7 +112,7 @@ function Visit({ board, visit }: { board: Board; visit: SubjectVisit }) {
                 <Txt style={styles.outcomeText}>{outcome.text}</Txt>
                 <Txt style={styles.outcomeMeta}>
                   {OUTCOME_NAMES[outcome.kind]}
-                  {outcome.assignee ? ` · ${outcome.assignee.name}` : ''}
+                  {ownerNames(itemAssignees(outcome)) ? ` · ${ownerNames(itemAssignees(outcome))}` : ''}
                   {outcome.due ? ` · ${formatLongDate(outcome.due)}` : ''}
                 </Txt>
               </View>

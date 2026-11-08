@@ -20,6 +20,7 @@ import {
 import { Button, Chip, Icon, IconButton } from '../../../../components/ui/Buttons';
 import { EditableText } from '../../../../components/ui/EditableText';
 import { ModalHeader } from '../../../../components/ui/Layout';
+import { MonthPicker } from '../../../../components/ui/MonthPicker';
 import { ActionList, PromptForm, Sheet, type SheetAction } from '../../../../components/ui/Sheet';
 import { Input, Txt } from '../../../../components/ui/Txt';
 import { addDays, formatLongDate, todayISO } from '../../../../lib/dates';
@@ -30,6 +31,7 @@ import { ordinal } from '../../../../lib/text';
 import { OUTCOME_NAMES } from '../../../../lib/activityText';
 import { colors } from '../../../../lib/theme';
 import type { IconName } from '../../../../components/ui/iconData';
+import { itemAssignees, ownerNames, toggleAssignee, withAssignees } from '../../../../shared/cards';
 import type { Board, Meeting, MeetingTopic, Outcome, OutcomeKind } from '../../../../shared/types';
 import {
   cardFromOutcome,
@@ -238,6 +240,7 @@ function MeetingForm({ board, meeting, onDone }: { board: Board; meeting: Meetin
   const today = todayISO();
   const held = isHeld(meeting);
   const [copied, setCopied] = useState(false);
+  const [custom, setCustom] = useState(false);
 
   useEffect(() => {
     if (!copied) return;
@@ -274,6 +277,7 @@ function MeetingForm({ board, meeting, onDone }: { board: Board; meeting: Meetin
           selected={meeting.date === addDays(today, -1)}
           onPress={() => update({ date: addDays(today, -1) })}
         />
+        <Chip label="تاريخ مخصص" icon="calendar" selected={custom} onPress={() => setCustom((on) => !on)} />
         <Chip
           label={held ? 'عُقد' : 'لم يُعقد بعد'}
           icon={held ? 'check' : 'clock'}
@@ -281,6 +285,15 @@ function MeetingForm({ board, meeting, onDone }: { board: Board; meeting: Meetin
           onPress={() => update({ held: !held })}
         />
       </View>
+      {custom ? (
+        <MonthPicker
+          value={meeting.date}
+          onPick={(date) => {
+            update({ date });
+            setCustom(false);
+          }}
+        />
+      ) : null}
 
       <Txt style={styles.formLabel}>المكان</Txt>
       <EditableText
@@ -497,6 +510,8 @@ function OutcomeClause({
   };
 
   const isTask = outcome.kind === 'task';
+  const owners = ownerNames(itemAssignees(outcome));
+  const [pickingDue, setPickingDue] = useState(false);
   const hasOwner = HAS_OWNER.includes(outcome.kind);
   const card = outcome.cardId ? board.cards[outcome.cardId] : undefined;
   const policy = outcome.policyId ? (board.policies ?? []).find((p) => p.id === outcome.policyId) : undefined;
@@ -587,7 +602,7 @@ function OutcomeClause({
         text={outcome.text || 'بدون نص'}
         meta={line(
           OUTCOME_NAMES[outcome.kind],
-          outcome.assignee?.name,
+          ownerNames(itemAssignees(outcome)),
           outcome.due && formatLongDate(outcome.due),
           policy && (repeals ? 'حذف سياسة قائمة' : policyTopic ? `بند في ${policyTopic.title}` : 'بند في السياسات'),
           card && `على اللوحة: ${card.title}`,
@@ -676,8 +691,11 @@ function OutcomeClause({
                   <Txt style={styles.sheetActionTitle}>المسؤول</Txt>
                 </View>
                 <View style={styles.sheetActionLeft}>
-                  <Txt style={[styles.sheetActionValue, outcome.assignee && styles.sheetActionValuePrimary]}>
-                    {outcome.assignee ? outcome.assignee.name : 'تحديد مسؤول'}
+                  <Txt
+                    style={[styles.sheetActionValue, owners !== null && styles.sheetActionValuePrimary]}
+                    numberOfLines={1}
+                  >
+                    {owners ?? 'تحديد مسؤول'}
                   </Txt>
                   <Icon name="chevron-left" size={14} color={colors.textFaint} />
                 </View>
@@ -709,6 +727,13 @@ function OutcomeClause({
                       onPress={() => update({ due: addDays(outcome.due!, 1) })}
                     />
                     <IconButton
+                      name="calendar"
+                      size={13}
+                      label="تاريخ مخصص"
+                      style={styles.miniStepper}
+                      onPress={() => setPickingDue((on) => !on)}
+                    />
+                    <IconButton
                       name="close"
                       size={13}
                       label="إزالة التاريخ"
@@ -717,12 +742,32 @@ function OutcomeClause({
                     />
                   </View>
                 ) : (
-                  <Pressable onPress={() => update({ due: todayISO() })}>
-                    <Txt style={styles.sheetActionLink}>+ تعيين تاريخ</Txt>
-                  </Pressable>
+                  <View style={styles.sheetDateControls}>
+                    <Pressable onPress={() => update({ due: todayISO() })}>
+                      <Txt style={styles.sheetActionLink}>+ تعيين تاريخ</Txt>
+                    </Pressable>
+                    <IconButton
+                      name="calendar"
+                      size={13}
+                      label="تاريخ مخصص"
+                      style={styles.miniStepper}
+                      onPress={() => setPickingDue((on) => !on)}
+                    />
+                  </View>
                 )}
               </View>
             </View>
+            {pickingDue ? (
+              <View style={styles.sheetMonth}>
+                <MonthPicker
+                  value={outcome.due ?? null}
+                  onPick={(due) => {
+                    update({ due });
+                    setPickingDue(false);
+                  }}
+                />
+              </View>
+            ) : null}
 
             {/* Which topic it sits under. The operation existed from the start; only the way to
                 reach it did not, so a decision written under the wrong heading was stuck there. */}
@@ -1072,15 +1117,17 @@ function OutcomeClause({
           </View>
         )}
 
+        {/* Several people, or everyone; the list stays open to pick more, as a card's does. */}
         {view === 'people' && (
           <PeoplePicker
             members={board.members ?? []}
-            single
+            everyone
             shared={!!board.shareCode}
-            selected={outcome.assignee ? [outcome.assignee.id] : []}
-            onChange={(member) => {
-              update({ assignee: member ? { id: member.id, name: member.name } : null });
-              setView('detail');
+            selected={itemAssignees(outcome).map((a) => a.id)}
+            onChange={(member, on) => {
+              if (!member) return;
+              // Both fields: a sync server not yet updated keeps the one person it knows, at least.
+              update(withAssignees({ assignees: toggleAssignee(itemAssignees(outcome), { id: member.id, name: member.name }, on) }));
             }}
             onSignIn={() => {
               setOpen(false);
@@ -1103,13 +1150,14 @@ function dispatchOutcome(
   boardId: string,
   meetingId: string,
   outcomeId: string,
-  patch: Partial<Pick<Outcome, 'kind' | 'text' | 'topicId' | 'assignee' | 'due' | 'cardId' | 'policyId' | 'done'>>,
+  patch: Partial<Pick<Outcome, 'kind' | 'text' | 'topicId' | 'assignee' | 'assignees' | 'due' | 'cardId' | 'policyId' | 'done'>>,
 ) {
   dispatch(boardId, { type: 'outcome/update', meetingId, outcomeId, patch });
 }
 
 const styles = StyleSheet.create({
   moveList: { paddingHorizontal: 16, paddingBottom: 16, gap: 6 },
+  sheetMonth: { paddingHorizontal: 16, paddingBottom: 8 },
   moveRow: {
     flexDirection: 'row-reverse',
     alignItems: 'center',

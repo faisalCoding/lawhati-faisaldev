@@ -1,5 +1,6 @@
 import { formatLongDate, todayISO } from './dates';
 import { ordinal } from './text';
+import { itemAssignees, ownerNames } from '../shared/cards';
 import type { Board, BoardColumn, Meeting, OpInput, Outcome, Policy } from '../shared/types';
 
 // What a meeting decided and never moved on, and is therefore owed an answer at the next one.
@@ -216,7 +217,7 @@ export function meetingSummary(meeting: Meeting, policies: readonly Policy[] = [
       title,
       ...owed.map((o) =>
         // Nobody holding it is worth saying out loud: it is the line someone has to pick up.
-        ['- ' + o.text, o.assignee?.name ?? 'بلا مسؤول', o.due ? formatLongDate(o.due) : null]
+        ['- ' + o.text, ownerNames(itemAssignees(o)) ?? 'بلا مسؤول', o.due ? formatLongDate(o.due) : null]
           .filter(Boolean)
           .join(' — '),
       ),

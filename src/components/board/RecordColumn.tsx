@@ -16,6 +16,7 @@ import { CARD_GAP, CARDS_PADDING_H, CARDS_PADDING_TOP, LONG_PRESS_MS, type Board
 import { ColumnColorPicker } from './ColumnColorPicker';
 import { runTapTarget } from './tapTargets';
 import { Icon, IconButton } from '../ui/Buttons';
+import { EditableText } from '../ui/EditableText';
 import { ActionList, Sheet, type SheetAction } from '../ui/Sheet';
 import { Input, Txt } from '../ui/Txt';
 
@@ -703,9 +704,18 @@ function AgendaSheet({ board }: { board: Board }) {
       </Txt>
       {agenda.map((subject, index) => (
         <View key={subject.id} style={styles.agendaRow}>
-          <Txt style={styles.agendaTitle} numberOfLines={2}>
-            {subject.title}
-          </Txt>
+          {/* Renamed in place. Meetings already held keep the title their topic had then: the
+              minutes record what was on the agenda that day, and the next meeting starts with this. */}
+          <EditableText
+            value={subject.title}
+            onCommit={(title) =>
+              dispatch(board.id, { type: 'agenda/update', subjectId: subject.id, patch: { title } })
+            }
+            required
+            placeholder="عنوان المحور"
+            accessibilityLabel={`عنوان المحور الثابت: ${subject.title}`}
+            style={styles.agendaTitle}
+          />
           <IconButton
             name="history"
             label={`كل ما تقرّر عن ${subject.title}`}

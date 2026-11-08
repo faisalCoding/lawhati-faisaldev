@@ -2,6 +2,7 @@ import { ScrollView, StyleSheet, View, Pressable } from 'react-native';
 
 import { colors } from '../../lib/theme';
 import type { Member } from '../../members/api';
+import { EVERYONE } from '../../shared/cards';
 import type { BoardMember } from '../../shared/types';
 import { useMemberSession } from '../../members/session';
 import { Avatar } from '../ui/Avatar';
@@ -9,9 +10,12 @@ import { Button, Icon } from '../ui/Buttons';
 import { useSheetListHeight } from '../ui/Sheet';
 import { Txt } from '../ui/Txt';
 
+/** «الجميع» in the shape the picker hands back for anyone it lists. */
+const EVERYONE_MEMBER: Member = { ...EVERYONE, role: null, active: true };
+
 /**
- * Who a card (several people) or a task (one person) may be assigned to: the board's own roster,
- * which every device adds itself to on opening the board.
+ * Who a card, a task or a meeting's decision may be assigned to: the board's own roster, which every
+ * device adds itself to on opening the board.
  *
  * Not the site's team endpoint. That one answers with the asker alone, on purpose — anyone may sign
  * up here, and handing every stranger the names of all the others is a price no feature is worth.
@@ -21,6 +25,7 @@ export function PeoplePicker({
   members,
   selected,
   single,
+  everyone,
   shared,
   onChange,
   onSignIn,
@@ -29,8 +34,13 @@ export function PeoplePicker({
   members: BoardMember[];
   /** Ids of the people assigned now. */
   selected: string[];
-  /** A task has one person (or none); a card can have several. */
+  /** One person or none, rather than several. */
   single?: boolean;
+  /**
+   * Offers «الجميع» first: the thing is everyone's to do. It replaces whoever is named, and naming
+   * someone takes it back from everyone — see `toggleAssignee`, which callers apply to `onChange`.
+   */
+  everyone?: boolean;
   /** Whether the board is shared: on a board only this phone has, nobody else sees the assignment. */
   shared: boolean;
   /** `member` null: nobody (single only). */
@@ -51,11 +61,12 @@ export function PeoplePicker({
 
   // Me first, then the rest of the roster in the order the board met them. Someone already assigned
   // stays listed even if the roster has not seen them — a board that arrived with assignments on it
-  // must still show who they are, and they must stay removable.
+  // must still show who they are, and they must stay removable. «الجميع» is nobody's id on the
+  // roster, and has its own row above.
   const toMember = (m: BoardMember): Member => ({ id: m.id, name: m.name, role: null, active: true });
   const others = members.filter((m) => m.id !== me.id).map(toMember);
   const missing = selected
-    .filter((id) => id !== me.id && !others.some((m) => m.id === id))
+    .filter((id) => id !== me.id && id !== EVERYONE.id && !others.some((m) => m.id === id))
     .map((id) => ({ id, name: 'عضو سابق', role: null, active: false }) satisfies Member);
   const people = [me, ...others, ...missing];
 
@@ -67,6 +78,15 @@ export function PeoplePicker({
         </Txt>
       ) : null}
       {single ? <Row label="بلا مسؤول" on={selected.length === 0} onPress={() => onChange(null, true)} /> : null}
+      {everyone ? (
+        <Row
+          member={EVERYONE_MEMBER}
+          label={EVERYONE.name}
+          hint="مسؤولية الجميع، فتظهر في «المسندة إليّ» عند كلّ واحد"
+          on={selected.includes(EVERYONE.id)}
+          onPress={() => onChange(EVERYONE_MEMBER, single ? true : !selected.includes(EVERYONE.id))}
+        />
+      ) : null}
       {people.map((m) => {
         const on = selected.includes(m.id);
         return (
