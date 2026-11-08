@@ -11,6 +11,8 @@ export const OUTCOME_NAMES: Record<OutcomeKind, string> = {
   task: 'مهمة',
   assignment: 'مسؤولية',
   note: 'ملاحظة',
+  positive: 'إيجابية',
+  negative: 'سلبية',
   announcement: 'إعلان',
   policy: 'سياسة',
 };

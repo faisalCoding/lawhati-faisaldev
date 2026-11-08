@@ -88,12 +88,15 @@ export function DocClause({
   marker,
   text,
   meta,
+  metaColor,
   struck,
   onPress,
 }: {
   marker: string;
   text: string;
   meta?: string;
+  /** For a note line that says something by its colour, as a review's good and bad points do. */
+  metaColor?: string;
   struck?: boolean;
   onPress?: () => void;
 }) {
@@ -103,7 +106,7 @@ export function DocClause({
         <Txt style={styles.marker}>{marker}</Txt>
         <View style={styles.clauseBody}>
           <Txt style={[styles.clauseText, struck && styles.struck]}>{text}</Txt>
-          {meta ? <Txt style={styles.clauseMeta}>{meta}</Txt> : null}
+          {meta ? <Txt style={[styles.clauseMeta, metaColor ? { color: metaColor } : null]}>{meta}</Txt> : null}
         </View>
       </View>
     </DocTap>

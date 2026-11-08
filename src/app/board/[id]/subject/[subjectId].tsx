@@ -7,7 +7,7 @@ import { ModalHeader, Section } from '../../../../components/ui/Layout';
 import { Txt } from '../../../../components/ui/Txt';
 import { OUTCOME_NAMES } from '../../../../lib/activityText';
 import { formatLongDate } from '../../../../lib/dates';
-import { hasMoved } from '../../../../lib/meetings';
+import { hasMoved, outcomeTone } from '../../../../lib/meetings';
 import { goBack } from '../../../../lib/nav';
 import { subjectHistory, type SubjectVisit } from '../../../../lib/subjects';
 import { colors } from '../../../../lib/theme';
@@ -110,7 +110,7 @@ function Visit({ board, visit }: { board: Board; visit: SubjectVisit }) {
               <View style={[styles.dot, stuck ? styles.dotStuck : styles.dotMoved]} />
               <View style={styles.outcomeBody}>
                 <Txt style={styles.outcomeText}>{outcome.text}</Txt>
-                <Txt style={styles.outcomeMeta}>
+                <Txt style={[styles.outcomeMeta, { color: outcomeTone(outcome.kind) ?? colors.textFaint }]}>
                   {OUTCOME_NAMES[outcome.kind]}
                   {ownerNames(itemAssignees(outcome)) ? ` · ${ownerNames(itemAssignees(outcome))}` : ''}
                   {outcome.due ? ` · ${formatLongDate(outcome.due)}` : ''}

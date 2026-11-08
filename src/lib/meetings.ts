@@ -1,7 +1,8 @@
 import { formatLongDate, todayISO } from './dates';
 import { ordinal } from './text';
+import { colors } from './theme';
 import { itemAssignees, ownerNames } from '../shared/cards';
-import type { Board, BoardColumn, Meeting, OpInput, Outcome, Policy } from '../shared/types';
+import type { Board, BoardColumn, Meeting, OpInput, Outcome, OutcomeKind, Policy } from '../shared/types';
 
 // What a meeting decided and never moved on, and is therefore owed an answer at the next one.
 //
@@ -129,6 +130,14 @@ export function isHeld(meeting: Meeting, today = todayISO()): boolean {
  * The other kinds ask nothing of anyone and are never counted. A bar that cannot reach the end
  * teaches people to ignore it.
  */
+/**
+ * The colour a decision's kind is named in, where it has one: what went well in green and what did
+ * not in red, so a review reads at a glance. Every other kind keeps the page's quiet grey.
+ */
+export function outcomeTone(kind: OutcomeKind): string | undefined {
+  return kind === 'positive' ? colors.success : kind === 'negative' ? colors.danger : undefined;
+}
+
 export function needsMoving(outcome: Outcome): boolean {
   return outcome.kind === 'task' || outcome.kind === 'policy';
 }
@@ -192,6 +201,19 @@ export function meetingSummary(meeting: Meeting, policies: readonly Policy[] = [
   // A decision whose topic was deleted falls back to the meeting as a whole, as on the screen.
   const general = outcomes.filter((o) => !o.topicId || !topicIds.has(o.topicId));
   const numbered = (list: Outcome[]) => list.map((o, i) => `${i + 1}. ${o.text}`);
+  // What went well and what did not come first, each under its heading, and what was decided after
+  // them — the way such a review is written. Without either, the decisions are one numbered list.
+  const decisions = (list: Outcome[]) => {
+    const good = list.filter((o) => o.kind === 'positive');
+    const bad = list.filter((o) => o.kind === 'negative');
+    if (good.length === 0 && bad.length === 0) return numbered(list);
+    const rest = list.filter((o) => o.kind !== 'positive' && o.kind !== 'negative');
+    return [
+      ...(good.length > 0 ? ['الإيجابيات:', ...numbered(good)] : []),
+      ...(bad.length > 0 ? ['السلبيات:', ...numbered(bad)] : []),
+      ...(rest.length > 0 ? ['التوصيات:', ...numbered(rest)] : []),
+    ];
+  };
 
   const head = [`محضر اجتماع: ${meeting.title}`, `التاريخ: ${formatLongDate(meeting.date)}`];
   if (meeting.place?.trim()) head.push(`المكان: ${meeting.place.trim()}`);
@@ -202,11 +224,11 @@ export function meetingSummary(meeting: Meeting, policies: readonly Policy[] = [
   if (meeting.topics.length > 0) {
     // A blank line between topics, so each one reads as its own paragraph with what it decided.
     const topics = meeting.topics.map((topic, i) =>
-      [`${ordinal(i + 1)}: ${topic.title}`, ...numbered(outcomes.filter((o) => o.topicId === topic.id))].join('\n'),
+      [`${ordinal(i + 1)}: ${topic.title}`, ...decisions(outcomes.filter((o) => o.topicId === topic.id))].join('\n'),
     );
     sections.push(['المحاور', topics.join('\n\n')]);
   }
-  if (general.length > 0) sections.push(['توصيات عامّة', ...numbered(general)]);
+  if (general.length > 0) sections.push(['توصيات عامّة', ...decisions(general)]);
 
   // Who holds what: a task by a date, a standing responsibility with none. Both answer «who?».
   const owed = outcomes.filter((o) => o.kind === 'task' || o.kind === 'assignment');

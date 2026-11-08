@@ -119,8 +119,8 @@ export interface MeetingTopic {
 }
 
 /**
- * What a meeting decided. Four shapes, because a meeting produces four kinds of thing and flattening
- * them into free text loses what can be acted on:
+ * What a meeting decided or concluded, by kind, because flattening it all into free text loses what
+ * can be acted on:
  *
  * - `task`: someone is to do something by a date. It can be turned into a card on the board, which
  *   is what puts it into the reminders, «assigned to me», and the lists people actually work from.
@@ -128,10 +128,14 @@ export interface MeetingTopic {
  *   money. Not a task: it has no deadline and is never finished. A fifth of the real decisions
  *   read this way, and one meeting was five of them and no tasks at all.
  * - `note`: what was concluded, or a summary of the discussion. Nobody owes anything.
+ * - `positive` and `negative`: what went well and what did not. A meeting looking back on a trip or
+ *   a week is mostly these, and its summary sets them under their own headings, «الإيجابيات» and
+ *   «السلبيات», as such a review is written. Like a note, nobody owes anything; unlike one, which
+ *   side it falls on is the point. A version before 1.2 shows them as plain lines, unnamed.
  * - `announcement`: a general direction, told to everyone rather than owed by anyone.
  * - `policy`: an addition, change or removal to the board's standing policies.
  */
-export type OutcomeKind = 'task' | 'assignment' | 'note' | 'announcement' | 'policy';
+export type OutcomeKind = 'task' | 'assignment' | 'note' | 'positive' | 'negative' | 'announcement' | 'policy';
 
 export interface Outcome {
   id: string;

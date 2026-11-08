@@ -12,12 +12,15 @@ import {
   meetingSummary,
   movedProgress,
   needsMoving,
+  outcomeTone,
   stuckBefore,
   zonedColumns,
 } from '../src/lib/meetings';
 import { subjectHistory } from '../src/lib/subjects';
 import { boardTasksText } from '../src/lib/tasksText';
 import { monthTitle, monthWeeks } from '../src/lib/dates';
+import { describeWhat } from '../src/lib/activityText';
+import { colors } from '../src/lib/theme';
 import { EVERYONE, isAssignedTo, itemAssignees, ownerNames, toggleAssignee, withAssignees } from '../src/shared/cards';
 import { describe as describeForTeam, newlyAssigned } from '../server/team';
 import { stillApplies, undoOf } from '../src/shared/activity';
@@ -926,6 +929,42 @@ ok('وينتهي في أسبوعه الخامس', november.length === 5 && novem
 ok('وأكتوبر يبدأ يوم خميس بعد أربع خانات فارغة', monthWeeks(2026, 9)[0].join('|') === '||||2026-10-01|2026-10-02|2026-10-03');
 ok('وكلّ أسبوع سبعة أيام', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].every((m) => monthWeeks(2026, m).every((w) => w.length === 7)));
 ok('وعنوان الشهر بالعربية', monthTitle(2026, 10) === 'نوفمبر 2026');
+
+// ── الإيجابيات والسلبيات ─────────────────────────────────────────────────────
+const review = m({
+  title: 'مراجعة الرحلة',
+  topics: [
+    { id: 'R1', title: 'الرحلة', notes: '' },
+    { id: 'R2', title: 'الحلقات', notes: '' },
+  ],
+  outcomes: [
+    open({ id: 'v1', kind: 'negative', text: 'تأخّر الانطلاق', topicId: 'R1' }),
+    open({ id: 'v2', kind: 'task', text: 'حجز حافلة أكبر', topicId: 'R1' }),
+    open({ id: 'v3', kind: 'positive', text: 'التنظيم ممتاز', topicId: 'R1' }),
+    open({ id: 'v4', kind: 'negative', text: 'نقص الماء', topicId: 'R1' }),
+    open({ id: 'v5', kind: 'note', text: 'الحضور مستقرّ', topicId: 'R2' }),
+    open({ id: 'v6', kind: 'positive', text: 'روح الفريق', topicId: null }),
+  ],
+});
+const reviewText = meetingSummary(review);
+ok(
+  'تحت المحور: الإيجابيات ثم السلبيات ثم التوصيات، كلٌّ بأرقامه',
+  reviewText.includes('أولًا: الرحلة\nالإيجابيات:\n1. التنظيم ممتاز\nالسلبيات:\n1. تأخّر الانطلاق\n2. نقص الماء\nالتوصيات:\n1. حجز حافلة أكبر\n\n'),
+);
+ok('ومحور بلا إيجابيات ولا سلبيات يبقى قائمة واحدة كما كان', reviewText.includes('ثانيًا: الحلقات\n1. الحضور مستقرّ'));
+ok('والتوصيات العامّة تُقسَم كذلك', sectionsOf(reviewText).some((b) => b.join('\n') === 'توصيات عامّة\nالإيجابيات:\n1. روح الفريق'));
+ok('ولا تدخل قسم المهام', sectionsOf(reviewText).some((b) => b[0] === 'المهام' && b.length === 2 && b[1].startsWith('- حجز حافلة أكبر')));
+ok('ولا تنتظر ترحيلًا', !needsMoving(open({ kind: 'positive' })) && !needsMoving(open({ kind: 'negative' })));
+ok('ولا تُعدّ في شريط الاجتماع', movedProgress(withCards, review).total === 1);
+ok('الإيجابية خضراء والسلبية حمراء', outcomeTone('positive') === colors.success && outcomeTone('negative') === colors.danger);
+ok('وسائر الأنواع بلا لون', (['task', 'assignment', 'note', 'announcement', 'policy'] as const).every((k) => outcomeTone(k) === undefined));
+ok(
+  'والنشاط يسمّيها',
+  describeWhat({ type: 'outcome/add', meeting: 'مراجعة الرحلة', kind: 'negative', text: 'تأخّر الانطلاق' }) ===
+    'إضافة سلبية «تأخّر الانطلاق» إلى «مراجعة الرحلة»' &&
+    describeWhat({ type: 'outcome/kind', meeting: 'مراجعة الرحلة', text: 'التنظيم ممتاز', kind: 'positive' }) ===
+      'جعل «التنظيم ممتاز» إيجابية في «مراجعة الرحلة»',
+);
 
 console.log(bad ? `\n  ${bad} من ${n} فشلت` : `\n  ${n}/${n} نجحت`);
 process.exit(bad ? 1 : 0);

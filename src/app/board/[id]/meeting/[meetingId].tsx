@@ -24,7 +24,7 @@ import { MonthPicker } from '../../../../components/ui/MonthPicker';
 import { ActionList, PromptForm, Sheet, type SheetAction } from '../../../../components/ui/Sheet';
 import { Input, Txt } from '../../../../components/ui/Txt';
 import { addDays, formatLongDate, todayISO } from '../../../../lib/dates';
-import { isHeld, meetingSummary, movedProgress } from '../../../../lib/meetings';
+import { isHeld, meetingSummary, movedProgress, outcomeTone } from '../../../../lib/meetings';
 import { uid } from '../../../../lib/ids';
 import { goBack } from '../../../../lib/nav';
 import { ordinal } from '../../../../lib/text';
@@ -435,6 +435,7 @@ function AddOutcome({
 }) {
   const [kind, setKind] = useState<OutcomeKind>('task');
   const [draft, setDraft] = useState('');
+  const chosen = KINDS.find((k) => k.kind === kind);
 
   const add = () => {
     const text = draft.trim();
@@ -460,11 +461,11 @@ function AddOutcome({
           />
         ))}
       </View>
-      <Txt style={styles.formHint}>{KINDS.find((k) => k.kind === kind)?.hint}</Txt>
+      <Txt style={styles.formHint}>{chosen?.hint}</Txt>
       <Input
         value={draft}
         onChangeText={setDraft}
-        placeholder="اكتب ما تقرّر أو ما أُوصي به…"
+        placeholder={chosen?.placeholder ?? 'اكتب ما تقرّر أو ما أُوصي به…'}
         style={styles.formInput}
         multiline
         autoFocus
@@ -475,10 +476,12 @@ function AddOutcome({
 }
 
 /** The kinds a recommendation can take, in the order they are offered. */
-const KINDS: { kind: OutcomeKind; icon: IconName; hint: string }[] = [
+const KINDS: { kind: OutcomeKind; icon: IconName; hint: string; placeholder?: string }[] = [
   { kind: 'task', icon: 'checks', hint: 'يفعلها أحدهم وتنتهي' },
   { kind: 'assignment', icon: 'user', hint: 'يحملها أحدهم من الآن فصاعدًا — لا تنتهي' },
   { kind: 'note', icon: 'description', hint: 'خلاصة أو ملخّص نقاش' },
+  { kind: 'positive', icon: 'thumbs-up', hint: 'ما نجح، ويستحقّ أن يتكرّر', placeholder: 'اكتب ما نجح…' },
+  { kind: 'negative', icon: 'thumbs-down', hint: 'ما لم ينجح، ليُتلافى في المرّة القادمة', placeholder: 'اكتب ما لم ينجح…' },
   { kind: 'announcement', icon: 'info', hint: 'توجيه عامّ للجميع' },
   { kind: 'policy', icon: 'book', hint: 'قاعدة دائمة تدخل السياسات' },
 ];
@@ -607,6 +610,7 @@ function OutcomeClause({
           policy && (repeals ? 'حذف سياسة قائمة' : policyTopic ? `بند في ${policyTopic.title}` : 'بند في السياسات'),
           card && `على اللوحة: ${card.title}`,
         )}
+        metaColor={outcomeTone(outcome.kind)}
         onPress={openSheet}
       />
 
